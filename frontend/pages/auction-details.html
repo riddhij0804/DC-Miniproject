@@ -1,0 +1,81 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Lot Details — Vermilion &amp; Co. Fine Art Auctions</title>
+  <link rel="stylesheet" href="/css/theme.css">
+  <link rel="stylesheet" href="/css/marketplace.css">
+</head>
+<body>
+
+  <!-- Site Header -->
+  <header class="site-header">
+    <div class="container header-inner">
+      <a href="/marketplace" class="brand-wordmark">
+        <span class="brand-title">Vermilion &amp; Co.</span>
+        <span class="brand-subtitle">Fine Art Auctions • Distributed gRPC Engine</span>
+      </a>
+
+      <nav>
+        <ul class="nav-links">
+          <li><a href="/marketplace" class="nav-link">Discover</a></li>
+          <li><a href="/marketplace" class="nav-link">Live Auctions</a></li>
+          <li><a href="/marketplace" class="nav-link">Upcoming Lots</a></li>
+          <li class="admin-only" style="display: none;">
+            <a href="/marketplace" class="nav-link" style="color: var(--accent-vermilion); font-weight: 600;">
+              Curator Admin
+            </a>
+          </li>
+        </ul>
+      </nav>
+
+      <div class="header-actions">
+        <div id="live-connection-indicator" title="Live Event Stream Connected" style="display: flex; align-items: center; gap: 0.4rem; font-size: 0.75rem; color: var(--text-secondary);">
+          <span class="pulse-dot"></span> Live Stream
+        </div>
+        <div id="user-menu-area"></div>
+      </div>
+    </div>
+  </header>
+
+  <!-- Auction Details Container -->
+  <main class="details-page">
+    <div class="container">
+      <!-- Breadcrumbs -->
+      <nav class="breadcrumb-nav">
+        <a href="/marketplace">Marketplace</a>
+        <span>/</span>
+        <span>Catalog Lots</span>
+        <span>/</span>
+        <span id="breadcrumb-lot-id" style="color: var(--text-primary); font-weight: 500;">Lot Details</span>
+      </nav>
+
+      <!-- Main Stage Populated by auction-details.js -->
+      <div id="details-container">
+        <div class="skeleton-card" style="height: 500px;">
+          <div class="skeleton-shimmer"></div>
+        </div>
+      </div>
+    </div>
+  </main>
+
+  <!-- Site Footer -->
+  <footer class="site-footer">
+    <div class="container footer-inner">
+      <div>
+        <strong style="color: var(--text-primary); font-family: var(--font-serif); font-size: 1.1rem;">Vermilion &amp; Co. Fine Art Auctions</strong>
+        <p style="margin-top: 0.25rem;">Distributed Computing Mini-Project • Member 1 Access &amp; Marketplace Module</p>
+      </div>
+      <div>
+        <p>Built with Python gRPC, Protocol Buffers, SQLite3, FastAPI, and Vanilla JavaScript.</p>
+      </div>
+    </div>
+  </footer>
+
+  <!-- Scripts -->
+  <script src="/js/api.js"></script>
+  <script src="/js/auth.js"></script>
+  <script src="/js/auction-details.js"></script>
+</body>
+</html>

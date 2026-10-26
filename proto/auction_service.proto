@@ -1,0 +1,163 @@
+syntax = "proto3";
+
+package auction;
+
+// ==========================================
+// USER ACCESS SERVICE (Member 1 Responsibility)
+// ==========================================
+
+service UserService {
+  // Authenticates demo user, fetches profile & role from the database
+  rpc Login (LoginRequest) returns (LoginResponse);
+  
+  // Optional user verification
+  rpc GetUserProfile (UserProfileRequest) returns (UserProfileResponse);
+}
+
+message LoginRequest {
+  string username = 1;
+}
+
+message LoginResponse {
+  bool success = 1;
+  string error_message = 2;
+  string user_id = 3;
+  string username = 4;
+  string display_name = 5;
+  string role = 6; // e.g. "BUYER", "ADMIN", "SELLER"
+}
+
+message UserProfileRequest {
+  string user_id = 1;
+}
+
+message UserProfileResponse {
+  bool found = 1;
+  string user_id = 2;
+  string username = 3;
+  string display_name = 4;
+  string role = 5;
+}
+
+// ==========================================
+// AUCTION SERVICE
+// - List & Get: Member 1 Responsibility
+// - PlaceBid & Create: Member 2 Responsibility
+// - Live Streaming: Member 3 Responsibility
+// ==========================================
+
+service AuctionService {
+  // Member 1: Marketplace queries
+  rpc ListAuctions (ListAuctionsRequest) returns (ListAuctionsResponse);
+  rpc GetAuction (GetAuctionRequest) returns (GetAuctionResponse);
+  rpc GetCategories (GetCategoriesRequest) returns (GetCategoriesResponse);
+
+  // Member 2 Integration Hooks (Defined in contract, implemented by Member 2):
+  // rpc PlaceBid (PlaceBidRequest) returns (PlaceBidResponse);
+  // rpc CreateAuction (CreateAuctionRequest) returns (CreateAuctionResponse);
+
+  // Member 3 Integration Hooks (Defined in contract, implemented by Member 3):
+  // rpc StreamAuctionEvents (AuctionEventRequest) returns (stream AuctionEventResponse);
+}
+
+message Auction {
+  string auction_id = 1;
+  string title = 2;
+  string description = 3;
+  string category = 4;
+  string artist_name = 5;
+  string image_path = 6;
+  string seller_id = 7;
+  string seller_name = 8;
+  double starting_price = 9;
+  double min_increment = 10;
+  double highest_bid = 11;
+  string highest_bidder_id = 12;
+  string highest_bidder_name = 13;
+  string start_time = 14;      // ISO 8601 string, e.g. 2026-10-26T20:00:00Z
+  string end_time = 15;        // ISO 8601 string, e.g. 2026-10-27T20:00:00Z
+  string status = 16;          // "UPCOMING", "ACTIVE", "CLOSED"
+  double min_next_bid = 17;    // calculated: highest_bid > 0 ? highest_bid + min_increment : starting_price
+  int32 total_bids = 18;
+}
+
+message ListAuctionsRequest {
+  string search = 1;           // Optional search query on title, artist, or description
+  string category = 2;         // Optional category filter (e.g., "Paintings", "Sculptures", "Vintage", "Collectibles", "Art")
+  string status = 3;           // Optional status filter ("ALL", "ACTIVE", "UPCOMING", "CLOSED")
+  int32 page = 4;              // 1-indexed page number
+  int32 page_size = 5;         // Items per page (default: 12)
+}
+
+message ListAuctionsResponse {
+  repeated Auction auctions = 1;
+  int32 total_count = 2;
+  int32 page = 3;
+  int32 total_pages = 4;
+}
+
+message GetAuctionRequest {
+  string auction_id = 1;
+}
+
+message GetAuctionResponse {
+  bool found = 1;
+  Auction auction = 2;
+  string error_message = 3;
+}
+
+message GetCategoriesRequest {}
+
+message GetCategoriesResponse {
+  repeated string categories = 1;
+}
+
+// ==========================================
+// MEMBER 2 & 3 CONTRACT STRUCTURES (Shared Contract)
+// ==========================================
+
+message PlaceBidRequest {
+  string auction_id = 1;
+  string bidder_id = 2;
+  double bid_amount = 3;
+}
+
+message PlaceBidResponse {
+  bool success = 1;
+  string message = 2;
+  double current_highest_bid = 3;
+  string timestamp = 4;
+}
+
+message CreateAuctionRequest {
+  string title = 1;
+  string description = 2;
+  string category = 3;
+  string artist_name = 4;
+  string image_path = 5;
+  string seller_id = 6;
+  double starting_price = 7;
+  double min_increment = 8;
+  string start_time = 9;
+  string end_time = 10;
+}
+
+message CreateAuctionResponse {
+  bool success = 1;
+  string auction_id = 2;
+  string error_message = 3;
+}
+
+message AuctionEventRequest {
+  string auction_id = 1;
+  string client_id = 2;
+}
+
+message AuctionEventResponse {
+  string event_type = 1; // "NEW_BID", "AUCTION_CLOSED", "TIME_EXTENDED"
+  string auction_id = 2;
+  double highest_bid = 3;
+  string highest_bidder_name = 4;
+  int32 total_bids = 5;
+  string timestamp = 6;
+}

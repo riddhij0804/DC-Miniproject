@@ -1,0 +1,154 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Sign In — Vermilion & Co. Fine Art Auctions</title>
+  <link rel="stylesheet" href="/css/theme.css">
+  <link rel="stylesheet" href="/css/marketplace.css">
+</head>
+<body class="login-page-body">
+
+  <main class="login-card">
+    <div class="login-header">
+      <div class="brand-wordmark" style="align-items: center; margin-bottom: 0.5rem;">
+        <span class="brand-title">Vermilion &amp; Co.</span>
+        <span class="brand-subtitle">Fine Art &amp; Rare Antiquities • Est. 1924</span>
+      </div>
+      <h1 class="login-title">Access Auction House</h1>
+      <p class="login-subtitle">Authenticate identity through Python gRPC User Access Service</p>
+    </div>
+
+    <!-- Feedback Alerts -->
+    <div id="login-alert" class="login-alert"></div>
+
+    <!-- Quick Demo Account Picker -->
+    <section class="demo-account-section">
+      <span class="section-label">Select Demo Account (Verified Database Records)</span>
+      <div id="demo-users-container" class="demo-users-list">
+        <!-- Dynamically populated or fallback -->
+        <button class="demo-user-button" data-username="buyer_eleanor">
+          <div class="demo-user-info">
+            <span class="demo-user-name">Eleanor Vance</span>
+            <span class="demo-user-bio">Fine art collector • French Barbizon &amp; Impressionism</span>
+          </div>
+          <span class="user-role-badge">BUYER</span>
+        </button>
+
+        <button class="demo-user-button" data-username="buyer_marcus">
+          <div class="demo-user-info">
+            <span class="demo-user-name">Marcus Sterling</span>
+            <span class="demo-user-bio">Classical bronze &amp; antiquities investor</span>
+          </div>
+          <span class="user-role-badge">BUYER</span>
+        </button>
+
+        <button class="demo-user-button" data-username="collector_sophia">
+          <div class="demo-user-info">
+            <span class="demo-user-name">Sophia Loren</span>
+            <span class="demo-user-bio">Horology &amp; 20th century avant-garde works</span>
+          </div>
+          <span class="user-role-badge">BUYER</span>
+        </button>
+
+        <button class="demo-user-button" data-username="admin_arthur">
+          <div class="demo-user-info">
+            <span class="demo-user-name">Arthur Pendelton (Curator)</span>
+            <span class="demo-user-bio">Chief Auctioneer &amp; Gallery Administrator</span>
+          </div>
+          <span class="user-role-badge role-admin">ADMIN</span>
+        </button>
+      </div>
+    </section>
+
+    <div class="login-divider">
+      <span>or enter username manually</span>
+    </div>
+
+    <!-- Custom Username Input Form -->
+    <form id="custom-login-form" class="custom-login-form">
+      <div class="form-group">
+        <label for="custom-username" style="font-size: 0.82rem; font-weight: 600; color: var(--text-secondary);">
+          Account Handle / Username
+        </label>
+        <input 
+          type="text" 
+          id="custom-username" 
+          class="form-input" 
+          placeholder="e.g. buyer_eleanor, admin_arthur" 
+          required 
+          autocomplete="username"
+        >
+      </div>
+      <button type="submit" id="submit-login-btn" class="btn btn-primary" style="width: 100%; padding: 0.85rem;">
+        Verify via gRPC &amp; Enter Marketplace
+      </button>
+    </form>
+
+    <div style="margin-top: 1.75rem; text-align: center;">
+      <a href="/marketplace" style="font-size: 0.85rem; color: var(--text-secondary); text-decoration: underline;">
+        Continue as Guest (Browse Only)
+      </a>
+    </div>
+  </main>
+
+  <script src="/js/api.js"></script>
+  <script src="/js/auth.js"></script>
+  <script>
+    document.addEventListener('DOMContentLoaded', () => {
+      const alertBox = document.getElementById('login-alert');
+      const form = document.getElementById('custom-login-form');
+      const usernameInput = document.getElementById('custom-username');
+      const submitBtn = document.getElementById('submit-login-btn');
+      const demoButtons = document.querySelectorAll('.demo-user-button');
+
+      function showAlert(msg, isSuccess = false) {
+        alertBox.className = `login-alert ${isSuccess ? 'alert-success' : 'alert-error'}`;
+        alertBox.textContent = msg;
+        alertBox.style.display = 'block';
+      }
+
+      function hideAlert() {
+        alertBox.style.display = 'none';
+      }
+
+      async function performLogin(username) {
+        hideAlert();
+        submitBtn.disabled = true;
+        submitBtn.textContent = 'Verifying with gRPC server...';
+
+        try {
+          const user = await api.login(username);
+          auth.setUser(user);
+
+          showAlert(`Authenticated as ${user.display_name} (${user.role}). Redirecting to marketplace...`, true);
+          setTimeout(() => {
+            window.location.href = '/marketplace';
+          }, 700);
+        } catch (err) {
+          showAlert(err.message || 'Authentication failed. Please verify username.');
+          submitBtn.disabled = false;
+          submitBtn.textContent = 'Verify via gRPC & Enter Marketplace';
+        }
+      }
+
+      // Quick Demo Click
+      demoButtons.forEach(btn => {
+        btn.addEventListener('click', (e) => {
+          e.preventDefault();
+          const uname = btn.dataset.username;
+          usernameInput.value = uname;
+          performLogin(uname);
+        });
+      });
+
+      // Manual Form Submit
+      form.addEventListener('submit', (e) => {
+        e.preventDefault();
+        const uname = usernameInput.value.trim();
+        if (uname) performLogin(uname);
+      });
+    });
+  </script>
+</body>
+</html>

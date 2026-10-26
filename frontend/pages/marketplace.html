@@ -1,0 +1,179 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Vermilion &amp; Co. — Online Art Auction Marketplace</title>
+  <link rel="stylesheet" href="/css/theme.css">
+  <link rel="stylesheet" href="/css/marketplace.css">
+</head>
+<body>
+
+  <!-- Site Header -->
+  <header class="site-header">
+    <div class="container header-inner">
+      <a href="/marketplace" class="brand-wordmark">
+        <span class="brand-title">Vermilion &amp; Co.</span>
+        <span class="brand-subtitle">Fine Art Auctions • Distributed gRPC Engine</span>
+      </a>
+
+      <nav>
+        <ul class="nav-links">
+          <li><a href="/marketplace" class="nav-link active">Discover</a></li>
+          <li><a href="#catalog" class="nav-link" id="nav-live-auctions">Live Auctions</a></li>
+          <li><a href="#catalog" class="nav-link" id="nav-upcoming">Upcoming Lots</a></li>
+          <li><a href="#catalog" class="nav-link">My Activity</a></li>
+          <li class="admin-only" style="display: none;">
+            <a href="/marketplace" class="nav-link" style="color: var(--accent-vermilion); font-weight: 600;">
+              Curator Admin
+            </a>
+          </li>
+        </ul>
+      </nav>
+
+      <div class="header-actions">
+        <!-- Live WebSocket Indicator -->
+        <div id="live-connection-indicator" title="Connected to Distributed Event Bus" style="display: flex; align-items: center; gap: 0.4rem; font-size: 0.75rem; color: var(--text-secondary);">
+          <span class="pulse-dot"></span> Live Stream
+        </div>
+
+        <!-- Dynamic User Profile Area -->
+        <div id="user-menu-area">
+          <a href="/login" class="btn btn-primary" style="padding: 0.45rem 1rem; font-size: 0.85rem;">
+            Sign In
+          </a>
+        </div>
+      </div>
+    </div>
+  </header>
+
+  <!-- Hero Section -->
+  <section class="hero-section">
+    <div class="container hero-grid">
+      <div class="hero-content">
+        <div class="badge badge-live" style="margin-bottom: 1rem;">
+          <span class="pulse-dot"></span> 2026 Autumn Salon • Session IV
+        </div>
+        <h1 class="hero-headline">
+          Discover Art.<br>
+          <span class="highlight">Bid Live</span> with Confidence.
+        </h1>
+        <p class="hero-subhead">
+          Explore museum-grade paintings, classical bronze sculptures, vintage horology, and rare collectibles.
+          All bids synchronized directly via high-performance Python gRPC streams.
+        </p>
+
+        <div style="display: flex; gap: 1rem; align-items: center; flex-wrap: wrap;">
+          <a href="#catalog" class="btn btn-primary">
+            Explore Curated Lots
+          </a>
+          <a href="/login" class="btn btn-secondary">
+            Switch Demo Account
+          </a>
+        </div>
+
+        <div class="hero-stats">
+          <div class="hero-stat-item">
+            <span class="hero-stat-number">100%</span>
+            <span class="hero-stat-label">Verified Provenance</span>
+          </div>
+          <div class="hero-stat-item">
+            <span class="hero-stat-number">gRPC</span>
+            <span class="hero-stat-label">Microsecond RPCs</span>
+          </div>
+          <div class="hero-stat-item">
+            <span class="hero-stat-number">Zero</span>
+            <span class="hero-stat-label">Licensing Fees</span>
+          </div>
+        </div>
+      </div>
+
+      <!-- Featured Auction Card -->
+      <div id="featured-lot-container" class="featured-lot-card">
+        <!-- Rendered dynamically by marketplace.js -->
+      </div>
+    </div>
+  </section>
+
+  <!-- Filter & Search Controls Bar -->
+  <section class="controls-bar" id="catalog">
+    <div class="container controls-inner">
+      <!-- Horizontal Category Chips -->
+      <div class="categories-container" id="categories-list">
+        <!-- Injected via JavaScript from backend -->
+      </div>
+
+      <!-- Search & Status Filter Row -->
+      <div class="filter-subbar">
+        <div class="status-pills">
+          <button class="status-pill active" data-status="ALL">All Lots</button>
+          <button class="status-pill" data-status="ACTIVE">Live Now</button>
+          <button class="status-pill" data-status="UPCOMING">Upcoming</button>
+          <button class="status-pill" data-status="CLOSED">Closed / Hammer Dropped</button>
+        </div>
+
+        <div class="search-box-wrapper">
+          <span class="search-icon">🔍</span>
+          <input 
+            type="text" 
+            id="search-input" 
+            class="search-input" 
+            placeholder="Search by artist, title, or movement..."
+            autocomplete="off"
+          >
+          <button id="search-clear-btn" class="search-clear-btn" title="Clear search">×</button>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- Main Auction Catalog Grid -->
+  <main class="catalog-section">
+    <div class="container">
+      <div class="catalog-header-info">
+        <h2 class="catalog-title">Catalog Lots</h2>
+        <span id="catalog-count" class="catalog-count">Loading lots...</span>
+      </div>
+
+      <!-- Auction Cards Grid -->
+      <div id="auction-grid" class="auction-grid">
+        <!-- Populated dynamically via marketplace.js with loading/empty/error states -->
+      </div>
+    </div>
+  </main>
+
+  <!-- Site Footer -->
+  <footer class="site-footer">
+    <div class="container footer-inner">
+      <div>
+        <strong style="color: var(--text-primary); font-family: var(--font-serif); font-size: 1.1rem;">Vermilion &amp; Co. Fine Art Auctions</strong>
+        <p style="margin-top: 0.25rem;">Distributed Computing Mini-Project • Member 1 Access &amp; Marketplace Module</p>
+      </div>
+      <div>
+        <p>Built with Python gRPC, Protocol Buffers, SQLite3, FastAPI, and Vanilla JavaScript.</p>
+      </div>
+    </div>
+  </footer>
+
+  <!-- Scripts -->
+  <script src="/js/api.js"></script>
+  <script src="/js/auth.js"></script>
+  <script src="/js/marketplace.js"></script>
+  <script>
+    // Quick anchor navigation bindings
+    document.getElementById('nav-live-auctions')?.addEventListener('click', (e) => {
+      e.preventDefault();
+      const livePill = document.querySelector('.status-pill[data-status="ACTIVE"]');
+      if (livePill) livePill.click();
+      document.getElementById('catalog').scrollIntoView({ behavior: 'smooth' });
+    });
+
+    document.getElementById('nav-upcoming')?.addEventListener('click', (e) => {
+      e.preventDefault();
+      const upcomingPill = document.querySelector('.status-pill[data-status="UPCOMING"]');
+      if (upcomingPill) upcomingPill.click();
+      document.getElementById('catalog').scrollIntoView({ behavior: 'smooth' });
+    });
+  </script>
+</body>
+</html>
