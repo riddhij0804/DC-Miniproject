@@ -1,6 +1,8 @@
 """
-gRPC Auction Query Service Implementation (Member 1 Responsibility).
-Handles catalog retrieval, search, category/status filtering, and single auction lookup.
+gRPC Auction Service Implementation.
+Covers:
+- Member 1: Catalog retrieval, search, category/status filtering, and single auction lookup.
+- Member 2: Auction creation, atomic bid placement, concurrency control, auction closure, and bid history.
 """
 import math
 import grpc
@@ -8,6 +10,7 @@ from typing import Optional, Dict, Any
 
 from backend.grpc_server.generated import auction_service_pb2, auction_service_pb2_grpc
 from backend.grpc_server.repositories.auction_query_repository import AuctionQueryRepository
+from backend.grpc_server.repositories.bidding_repository import BiddingRepository
 
 def dict_to_proto_auction(d: Dict[str, Any]) -> auction_service_pb2.Auction:
     return auction_service_pb2.Auction(
@@ -32,8 +35,17 @@ def dict_to_proto_auction(d: Dict[str, Any]) -> auction_service_pb2.Auction:
     )
 
 class AuctionQueryServiceServicer(auction_service_pb2_grpc.AuctionServiceServicer):
-    def __init__(self, auction_repo: Optional[AuctionQueryRepository] = None):
+    def __init__(
+        self,
+        auction_repo: Optional[AuctionQueryRepository] = None,
+        bidding_repo: Optional[BiddingRepository] = None
+    ):
         self.auction_repo = auction_repo or AuctionQueryRepository()
+        self.bidding_repo = bidding_repo or BiddingRepository()
+
+    # ==========================================
+    # Member 1: Marketplace & Catalog RPCs
+    # ==========================================
 
     def ListAuctions(
         self,
@@ -101,3 +113,93 @@ class AuctionQueryServiceServicer(auction_service_pb2_grpc.AuctionServiceService
     ) -> auction_service_pb2.GetCategoriesResponse:
         categories = self.auction_repo.get_distinct_categories()
         return auction_service_pb2.GetCategoriesResponse(categories=categories)
+
+    # ==========================================
+    # Member 2: Bidding Engine & Auction Management
+    # ==========================================
+
+    def PlaceBid(
+        self,
+        request: auction_service_pb2.PlaceBidRequest,
+        context: grpc.ServicerContext
+    ) -> auction_service_pb2.PlaceBidResponse:
+        result = self.bidding_repo.place_bid(
+            auction_id=request.auction_id,
+            bidder_id=request.bidder_id,
+            bid_amount=request.bid_amount
+        )
+
+        return auction_service_pb2.PlaceBidResponse(
+            success=result["success"],
+            message=result["message"],
+            current_highest_bid=float(result.get("current_highest_bid", 0.0)),
+            timestamp=result.get("timestamp", "")
+        )
+
+    def CreateAuction(
+        self,
+        request: auction_service_pb2.CreateAuctionRequest,
+        context: grpc.ServicerContext
+    ) -> auction_service_pb2.CreateAuctionResponse:
+        result = self.bidding_repo.create_auction(
+            title=request.title,
+            description=request.description,
+            category=request.category,
+            artist_name=request.artist_name,
+            image_path=request.image_path,
+            seller_id=request.seller_id,
+            starting_price=request.starting_price,
+            min_increment=request.min_increment,
+            start_time=request.start_time if request.start_time else None,
+            end_time=request.end_time if request.end_time else None
+        )
+
+        return auction_service_pb2.CreateAuctionResponse(
+            success=result["success"],
+            auction_id=result.get("auction_id", ""),
+            error_message=result.get("error_message", "")
+        )
+
+    def CloseAuction(
+        self,
+        request: auction_service_pb2.CloseAuctionRequest,
+        context: grpc.ServicerContext
+    ) -> auction_service_pb2.CloseAuctionResponse:
+        result = self.bidding_repo.close_auction(
+            auction_id=request.auction_id,
+            user_id=request.user_id if request.user_id else None
+        )
+
+        return auction_service_pb2.CloseAuctionResponse(
+            success=result["success"],
+            message=result["message"],
+            auction_id=result.get("auction_id", ""),
+            status=result.get("status", "CLOSED"),
+            winner_id=result.get("winner_id", ""),
+            winner_name=result.get("winner_name", ""),
+            final_price=float(result.get("final_price", 0.0)),
+            total_bids=int(result.get("total_bids", 0))
+        )
+
+    def GetBids(
+        self,
+        request: auction_service_pb2.GetBidsRequest,
+        context: grpc.ServicerContext
+    ) -> auction_service_pb2.GetBidsResponse:
+        records = self.bidding_repo.get_bids(
+            auction_id=request.auction_id,
+            limit=request.limit if request.limit > 0 else 50
+        )
+        proto_records = [
+            auction_service_pb2.BidRecord(
+                bid_id=str(r.get("bid_id", "")),
+                auction_id=str(r.get("auction_id", "")),
+                bidder_id=str(r.get("bidder_id", "")),
+                bidder_name=str(r.get("bidder_name", "")),
+                bidder_username=str(r.get("bidder_username", "")),
+                bid_amount=float(r.get("bid_amount", 0.0)),
+                timestamp=str(r.get("timestamp", ""))
+            )
+            for r in records
+        ]
+        return auction_service_pb2.GetBidsResponse(bids=proto_records)

@@ -3,6 +3,7 @@ gRPC client wrapper for the Web Gateway.
 Maintains communication channel with native gRPC server and translates responses to native Python dicts.
 """
 import os
+import time
 import grpc
 from typing import Optional, Dict, Any, List
 
@@ -152,6 +153,142 @@ class GrpcAuctionClient:
             return list(resp.categories)
         except grpc.RpcError:
             return ["Art", "Paintings", "Sculptures", "Vintage", "Collectibles"]
+
+    def place_bid(self, auction_id: str, bidder_id: str, bid_amount: float) -> Dict[str, Any]:
+        """Calls AuctionService.PlaceBid over gRPC unary RPC."""
+        req = auction_service_pb2.PlaceBidRequest(
+            auction_id=auction_id,
+            bidder_id=bidder_id,
+            bid_amount=float(bid_amount)
+        )
+        t0 = time.perf_counter()
+        try:
+            resp = self.auction_stub.PlaceBid(req, timeout=5.0)
+            latency_ms = round((time.perf_counter() - t0) * 1000, 2)
+            return {
+                "success": resp.success,
+                "message": resp.message,
+                "current_highest_bid": resp.current_highest_bid,
+                "timestamp": resp.timestamp,
+                "latency_ms": latency_ms,
+                "protocol": "gRPC Unary (Port 50051)",
+                "tx_status": "COMMITTED" if resp.success else "REJECTED"
+            }
+        except grpc.RpcError as e:
+            latency_ms = round((time.perf_counter() - t0) * 1000, 2)
+            return {
+                "success": False,
+                "message": e.details() or f"gRPC Error: {e.code().name}",
+                "current_highest_bid": 0.0,
+                "timestamp": "",
+                "latency_ms": latency_ms,
+                "protocol": "gRPC Unary (Port 50051)",
+                "tx_status": "ABORTED"
+            }
+
+    def create_auction(
+        self,
+        title: str,
+        description: str,
+        category: str,
+        artist_name: str,
+        image_path: str,
+        seller_id: str,
+        starting_price: float,
+        min_increment: float,
+        start_time: str = "",
+        end_time: str = ""
+    ) -> Dict[str, Any]:
+        """Calls AuctionService.CreateAuction over gRPC unary RPC."""
+        req = auction_service_pb2.CreateAuctionRequest(
+            title=title,
+            description=description,
+            category=category,
+            artist_name=artist_name,
+            image_path=image_path,
+            seller_id=seller_id,
+            starting_price=float(starting_price),
+            min_increment=float(min_increment),
+            start_time=start_time or "",
+            end_time=end_time or ""
+        )
+        t0 = time.perf_counter()
+        try:
+            resp = self.auction_stub.CreateAuction(req, timeout=5.0)
+            latency_ms = round((time.perf_counter() - t0) * 1000, 2)
+            return {
+                "success": resp.success,
+                "auction_id": resp.auction_id,
+                "error_message": resp.error_message,
+                "latency_ms": latency_ms,
+                "protocol": "gRPC Unary (Port 50051)"
+            }
+        except grpc.RpcError as e:
+            latency_ms = round((time.perf_counter() - t0) * 1000, 2)
+            return {
+                "success": False,
+                "auction_id": "",
+                "error_message": e.details() or f"gRPC Error: {e.code().name}",
+                "latency_ms": latency_ms,
+                "protocol": "gRPC Unary (Port 50051)"
+            }
+
+    def close_auction(self, auction_id: str, user_id: str = "") -> Dict[str, Any]:
+        """Calls AuctionService.CloseAuction over gRPC unary RPC."""
+        req = auction_service_pb2.CloseAuctionRequest(
+            auction_id=auction_id,
+            user_id=user_id or ""
+        )
+        t0 = time.perf_counter()
+        try:
+            resp = self.auction_stub.CloseAuction(req, timeout=5.0)
+            latency_ms = round((time.perf_counter() - t0) * 1000, 2)
+            return {
+                "success": resp.success,
+                "message": resp.message,
+                "auction_id": resp.auction_id,
+                "status": resp.status,
+                "winner_id": resp.winner_id,
+                "winner_name": resp.winner_name,
+                "final_price": resp.final_price,
+                "total_bids": resp.total_bids,
+                "latency_ms": latency_ms,
+                "protocol": "gRPC Unary (Port 50051)"
+            }
+        except grpc.RpcError as e:
+            latency_ms = round((time.perf_counter() - t0) * 1000, 2)
+            return {
+                "success": False,
+                "message": e.details() or f"gRPC Error: {e.code().name}",
+                "auction_id": auction_id,
+                "status": "ERROR",
+                "winner_id": "",
+                "winner_name": "",
+                "final_price": 0.0,
+                "total_bids": 0,
+                "latency_ms": latency_ms,
+                "protocol": "gRPC Unary (Port 50051)"
+            }
+
+    def get_bids(self, auction_id: str, limit: int = 50) -> List[Dict[str, Any]]:
+        """Calls AuctionService.GetBids over gRPC unary RPC."""
+        req = auction_service_pb2.GetBidsRequest(auction_id=auction_id, limit=limit)
+        try:
+            resp = self.auction_stub.GetBids(req, timeout=5.0)
+            return [
+                {
+                    "bid_id": b.bid_id,
+                    "auction_id": b.auction_id,
+                    "bidder_id": b.bidder_id,
+                    "bidder_name": b.bidder_name,
+                    "bidder_username": b.bidder_username,
+                    "bid_amount": b.bid_amount,
+                    "timestamp": b.timestamp
+                }
+                for b in resp.bids
+            ]
+        except grpc.RpcError:
+            return []
 
     def ping(self) -> bool:
         """Verifies connection to the gRPC server."""

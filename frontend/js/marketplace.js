@@ -1,6 +1,7 @@
 /**
  * Online Auction System - Marketplace Home Controller
- * Manages category filtering, live search debounce, real-time countdown tickers, and catalog rendering.
+ * Manages category filtering, live search debounce, real-time countdown tickers, catalog rendering,
+ * and Member 2 Auction Creation Flow.
  */
 
 document.addEventListener('DOMContentLoaded', async () => {
@@ -72,7 +73,9 @@ document.addEventListener('DOMContentLoaded', async () => {
       const val = e.target.value.trim();
       state.search = val;
       state.page = 1;
-      searchClearBtn.style.display = val.length > 0 ? 'block' : 'none';
+      if (searchClearBtn) {
+        searchClearBtn.style.display = val.length > 0 ? 'block' : 'none';
+      }
 
       clearTimeout(debounceTimeout);
       debounceTimeout = setTimeout(() => {
@@ -100,60 +103,65 @@ document.addEventListener('DOMContentLoaded', async () => {
     `).join('');
   }
 
-  // 5. Update Featured Lot in Hero
-  function updateFeaturedLot(auctions) {
-    if (!featuredLotCard) return;
-    // Find active auction with highest bid or first active
-    const featured = auctions.find(a => a.status === 'ACTIVE') || auctions[0];
-    if (!featured) {
-      featuredLotCard.style.display = 'none';
-      return;
-    }
+  // 5. Render Featured Lot in Hero
+  function renderFeaturedLot(auction) {
+    if (!featuredLotCard || !auction) return;
 
-    featuredLotCard.style.display = 'block';
-    const countdown = api.getCountdown(featured.end_time);
-    const priceDisplay = featured.highest_bid > 0
-      ? api.formatCurrency(featured.highest_bid)
-      : api.formatCurrency(featured.starting_price);
+    const isLive = auction.status === 'ACTIVE';
+    const countdown = api.getCountdown(auction.end_time);
+    const highestBidDisplay = auction.highest_bid > 0
+      ? api.formatCurrency(auction.highest_bid)
+      : api.formatCurrency(auction.starting_price);
 
     featuredLotCard.innerHTML = `
-      <div class="featured-image-wrapper">
-        <div class="featured-badge-float">
-          <span class="badge ${featured.status === 'ACTIVE' ? 'badge-live' : 'badge-upcoming'}">
-            ${featured.status === 'ACTIVE' ? '<span class="pulse-dot"></span> LIVE AUCTION' : 'UPCOMING'}
+      <div class="featured-image-box">
+        <div class="card-badge-container">
+          <span class="badge ${isLive ? 'badge-live' : 'badge-upcoming'}">
+            ${isLive ? '<span class="pulse-dot"></span> Live Masterwork' : 'Upcoming Highlight'}
           </span>
         </div>
-        <img src="${featured.image_path}" alt="${featured.title}">
+        <img src="${auction.image_path}" alt="${auction.title}">
       </div>
-      <div class="featured-body">
-        <div class="featured-lot-tag">Lot ${featured.auction_id} • ${featured.category}</div>
-        <h3 class="featured-title">${featured.title}</h3>
-        <p class="featured-artist">${featured.artist_name}</p>
-        <div class="card-timer-row ${featured.status === 'ACTIVE' ? 'timer-live' : ''}">
+      <div class="featured-details">
+        <div class="card-category-tag">${auction.category} • Lot ${auction.auction_id}</div>
+        <h3 class="featured-lot-title">${auction.title}</h3>
+        <p class="featured-artist">${auction.artist_name}</p>
+
+        <div class="featured-pricing-row">
+          <div>
+            <span class="price-label">${auction.highest_bid > 0 ? 'Current Highest Bid' : 'Starting Bid'}</span>
+            <div class="price-value highlight-vermilion" style="font-size: 1.4rem;">${highestBidDisplay}</div>
+          </div>
+          <div>
+            <span class="price-label">Min. Advance</span>
+            <div class="price-value" style="font-size: 1.1rem; color: var(--text-secondary);">${api.formatCurrency(auction.min_increment)}</div>
+          </div>
+        </div>
+
+        <div class="card-timer-row ${isLive ? 'timer-live' : ''}" style="margin: 0.75rem 0 1.25rem 0;">
           <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
             <circle cx="12" cy="12" r="10"></circle>
             <polyline points="12 6 12 12 16 14"></polyline>
           </svg>
-          <span class="countdown-text" data-end="${featured.end_time}" data-status="${featured.status}">${countdown.text}</span>
+          <span class="countdown-text" data-end="${auction.end_time}" data-status="${auction.status}">
+            ${countdown.text}
+          </span>
         </div>
-        <div class="featured-meta-row">
-          <div>
-            <div class="featured-price-label">${featured.highest_bid > 0 ? 'Current Highest Bid' : 'Starting Price'}</div>
-            <div class="featured-price-val">${priceDisplay}</div>
-          </div>
-          <a href="/auction-details?id=${featured.auction_id}" class="btn btn-primary" style="padding: 0.6rem 1.15rem; font-size: 0.85rem;">
-            View Lot & Bid
-          </a>
-        </div>
+
+        <a href="/auction-details?id=${auction.auction_id}" class="btn btn-vermilion" style="width: 100%; font-weight: 600;">
+          ${isLive ? 'Enter Bidding Room' : 'View Full Provenance'}
+        </a>
       </div>
     `;
   }
 
-  // 6. Fetch and Render Catalog
+  // 6. Fetch and Render Catalog Grid
   async function fetchAndRender() {
     renderSkeletons();
+    countBadge.textContent = 'Querying gRPC catalog...';
+
     try {
-      const data = await api.getAuctions({
+      const response = await api.getAuctions({
         search: state.search,
         category: state.category,
         status: state.status,
@@ -161,39 +169,25 @@ document.addEventListener('DOMContentLoaded', async () => {
         pageSize: state.pageSize
       });
 
-      const auctions = data.auctions || [];
-      if (countBadge) {
-        countBadge.textContent = `Showing ${auctions.length} of ${data.total_count} curated lots`;
-      }
+      const auctions = response.auctions || [];
+      const totalCount = response.total_count || 0;
 
-      // If on initial load or broad view, update hero featured lot
-      if (state.category === 'All' && !state.search && state.status === 'ALL') {
-        updateFeaturedLot(auctions);
+      countBadge.textContent = `${totalCount} lot${totalCount === 1 ? '' : 's'} available`;
+
+      // Set featured lot on initial load
+      if (auctions.length > 0 && state.category === 'All' && state.status === 'ALL' && !state.search) {
+        const liveLot = auctions.find(a => a.status === 'ACTIVE') || auctions[0];
+        renderFeaturedLot(liveLot);
       }
 
       if (auctions.length === 0) {
         gridContainer.innerHTML = `
           <div class="empty-state" style="grid-column: 1 / -1;">
             <div class="state-icon">🏛️</div>
-            <h3 class="state-title">No lots found</h3>
-            <p class="state-desc">There are no auction lots matching your selected criteria. Try resetting filters or searching with another term.</p>
-            <button id="reset-filters-btn" class="btn btn-secondary">Clear All Filters</button>
+            <h3 class="state-title">No matching auction lots found</h3>
+            <p class="state-desc">Try clearing your search query or selecting a different fine art category.</p>
           </div>
         `;
-
-        const resetBtn = document.getElementById('reset-filters-btn');
-        if (resetBtn) {
-          resetBtn.addEventListener('click', () => {
-            state.category = 'All';
-            state.status = 'ALL';
-            state.search = '';
-            if (searchInput) searchInput.value = '';
-            if (searchClearBtn) searchClearBtn.style.display = 'none';
-            statusPills.forEach(p => p.classList.toggle('active', p.dataset.status === 'ALL'));
-            categoriesList.querySelectorAll('.category-chip').forEach(c => c.classList.toggle('active', c.dataset.cat === 'All'));
-            fetchAndRender();
-          });
-        }
         return;
       }
 
@@ -283,6 +277,142 @@ document.addEventListener('DOMContentLoaded', async () => {
         el.textContent = countdown.text;
       });
     }, 1000);
+  }
+
+  // ==========================================
+  // Member 2: Auction Creation Modal Logic
+  // ==========================================
+  const modal = document.getElementById('create-auction-modal');
+  const openModalBtns = [
+    document.getElementById('nav-create-auction'),
+    document.getElementById('hero-create-btn'),
+    document.getElementById('btn-create-auction-catalog')
+  ].filter(Boolean);
+
+  const closeModalBtn = document.getElementById('modal-close-btn');
+  const cancelModalBtn = document.getElementById('modal-cancel-btn');
+  const createForm = document.getElementById('create-auction-form');
+  const feedbackEl = document.getElementById('create-lot-feedback');
+  const submitBtn = document.getElementById('modal-submit-btn');
+
+  function openCreateModal() {
+    const user = auth.getUser();
+    if (!user) {
+      alert('Please sign in with a Seller (e.g. seller_galerie) or Admin (admin_arthur) account to create auctions.');
+      window.location.href = '/login';
+      return;
+    }
+    if (user.role !== 'SELLER' && user.role !== 'ADMIN') {
+      alert(`User ${user.display_name} has role '${user.role}'. Only SELLERS or ADMINS can create lots.`);
+      return;
+    }
+    if (feedbackEl) {
+      feedbackEl.style.display = 'none';
+      feedbackEl.innerHTML = '';
+    }
+    if (modal) modal.classList.add('open');
+  }
+
+  function closeCreateModal() {
+    if (modal) modal.classList.remove('open');
+  }
+
+  openModalBtns.forEach(btn => {
+    btn.addEventListener('click', (e) => {
+      e.preventDefault();
+      openCreateModal();
+    });
+  });
+
+  if (closeModalBtn) closeModalBtn.addEventListener('click', closeCreateModal);
+  if (cancelModalBtn) cancelModalBtn.addEventListener('click', closeCreateModal);
+
+  if (modal) {
+    modal.addEventListener('click', (e) => {
+      if (e.target === modal) closeCreateModal();
+    });
+  }
+
+  if (createForm) {
+    createForm.addEventListener('submit', async (e) => {
+      e.preventDefault();
+      const user = auth.getUser();
+      if (!user) {
+        alert('Please sign in first.');
+        window.location.href = '/login';
+        return;
+      }
+
+      const title = document.getElementById('lot-title').value.trim();
+      const category = document.getElementById('lot-category').value;
+      const artist = document.getElementById('lot-artist').value.trim() || 'Masterwork Studio';
+      const description = document.getElementById('lot-description').value.trim();
+      const price = parseFloat(document.getElementById('lot-price').value);
+      const increment = parseFloat(document.getElementById('lot-increment').value) || 50;
+      const durationHours = parseFloat(document.getElementById('lot-duration').value) || 24;
+
+      // Rotate random artwork svg from assets
+      const randomIdx = Math.floor(Math.random() * 6) + 1;
+      const imagePath = `/assets/images/artwork_00${randomIdx}.svg`;
+
+      submitBtn.disabled = true;
+      submitBtn.textContent = 'Transmitting via gRPC...';
+
+      if (feedbackEl) {
+        feedbackEl.style.display = 'block';
+        feedbackEl.innerHTML = `<span style="color: var(--text-secondary); font-size: 0.85rem;">⏳ Invoking AuctionService.CreateAuction RPC...</span>`;
+      }
+
+      try {
+        const payload = {
+          title,
+          category,
+          artist_name: artist,
+          description,
+          starting_price: price,
+          min_increment: increment,
+          duration_hours: durationHours,
+          seller_id: user.user_id,
+          image_path: imagePath
+        };
+
+        const res = await api.createAuction(payload);
+
+        if (feedbackEl) {
+          const lat = res.telemetry?.latency_ms ? `(${res.telemetry.latency_ms}ms)` : '';
+          feedbackEl.innerHTML = `
+            <div style="padding: 0.75rem; background: rgba(46, 125, 50, 0.1); border: 1px solid rgba(46, 125, 50, 0.3); border-radius: 4px; color: #2E7D32; font-size: 0.88rem;">
+              <strong>✓ Auction Published!</strong> Lot ID: <code>${res.auction_id}</code> ${lat}<br>
+              <span style="font-size: 0.8rem; color: var(--text-secondary);">Committed to SQLite via gRPC unary call. Refreshing catalog...</span>
+            </div>
+          `;
+        }
+
+        setTimeout(() => {
+          closeCreateModal();
+          createForm.reset();
+          submitBtn.disabled = false;
+          submitBtn.textContent = 'Publish Auction (gRPC)';
+          // Reset to All category and view new lot
+          state.category = 'All';
+          state.status = 'ALL';
+          state.search = '';
+          fetchAndRender();
+        }, 1200);
+
+      } catch (err) {
+        submitBtn.disabled = false;
+        submitBtn.textContent = 'Publish Auction (gRPC)';
+        if (feedbackEl) {
+          feedbackEl.style.display = 'block';
+          feedbackEl.innerHTML = `
+            <div style="padding: 0.75rem; background: rgba(240, 68, 50, 0.1); border: 1px solid rgba(240, 68, 50, 0.3); border-radius: 4px; color: var(--accent-vermilion); font-size: 0.88rem;">
+              <strong>Failed to create auction:</strong> ${err.message}
+            </div>
+          `;
+        }
+      }
+    });
   }
 
   // Boot sequence

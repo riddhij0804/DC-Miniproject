@@ -1,6 +1,6 @@
 """
 Integration tests for gRPC server + FastAPI Web Gateway + SQLite database.
-Tests the complete distributed RPC round-trip.
+Tests the complete distributed RPC round-trip for Member 1 and Member 2 features.
 """
 import pytest
 import os
@@ -16,6 +16,7 @@ from backend.grpc_server.services.user_service import UserServiceServicer
 from backend.grpc_server.services.auction_query_service import AuctionQueryServiceServicer
 from backend.grpc_server.repositories.user_repository import UserRepository
 from backend.grpc_server.repositories.auction_query_repository import AuctionQueryRepository
+from backend.grpc_server.repositories.bidding_repository import BiddingRepository
 from backend.web_gateway.grpc_client import GrpcAuctionClient
 import backend.web_gateway.routers.auth as auth_router
 import backend.web_gateway.routers.auctions as auctions_router
@@ -39,12 +40,13 @@ def distributed_env():
     
     user_repo = UserRepository(db_path=db_path)
     auction_repo = AuctionQueryRepository(db_path=db_path)
+    bidding_repo = BiddingRepository(db_path=db_path)
 
     auction_service_pb2_grpc.add_UserServiceServicer_to_server(
         UserServiceServicer(user_repo=user_repo), server
     )
     auction_service_pb2_grpc.add_AuctionServiceServicer_to_server(
-        AuctionQueryServiceServicer(auction_repo=auction_repo), server
+        AuctionQueryServiceServicer(auction_repo=auction_repo, bidding_repo=bidding_repo), server
     )
 
     server.add_insecure_port(f"127.0.0.1:{port}")
@@ -67,6 +69,10 @@ def distributed_env():
     server.stop(grace=0)
     if os.path.exists(db_path):
         os.remove(db_path)
+
+# ==========================================
+# Member 1 Integration Tests
+# ==========================================
 
 def test_gateway_health(distributed_env):
     test_client, _ = distributed_env
@@ -153,3 +159,114 @@ def test_gateway_serves_pages_and_assets(distributed_env):
     asset_res = test_client.get("/assets/images/artwork_001.svg")
     assert asset_res.status_code == 200
     assert "<svg" in asset_res.text
+
+# ==========================================
+# Member 2 Integration Tests: Auction Creation & Bidding Flow
+# ==========================================
+
+def test_gateway_create_auction_authorized_seller(distributed_env):
+    test_client, _ = distributed_env
+    payload = {
+        "title": "A Venetian Sunset Study",
+        "description": "Luminous oil study of the Grand Canal during twilight.",
+        "category": "Paintings",
+        "artist_name": "J.M.W. Turner (Follower)",
+        "seller_id": "usr_galerie",
+        "starting_price": 4000.0,
+        "min_increment": 200.0,
+        "duration_hours": 12.0
+    }
+    res = test_client.post("/api/auctions", json=payload)
+    assert res.status_code == 201
+    data = res.json()
+    assert data["success"] is True
+    assert data["auction_id"].startswith("auc_")
+    assert "telemetry" in data
+    assert data["telemetry"]["protocol"] == "gRPC Unary (Port 50051)"
+
+    # Verify lot is immediately queryable via GET
+    get_res = test_client.get(f"/api/auctions/{data['auction_id']}")
+    assert get_res.status_code == 200
+    lot_data = get_res.json()
+    assert lot_data["title"] == "A Venetian Sunset Study"
+    assert lot_data["starting_price"] == 4000.0
+
+def test_gateway_create_auction_unauthorized_buyer(distributed_env):
+    test_client, _ = distributed_env
+    payload = {
+        "title": "Unauthorized Artwork",
+        "description": "Should fail role check",
+        "category": "Art",
+        "artist_name": "None",
+        "seller_id": "usr_eleanor",  # BUYER
+        "starting_price": 500.0
+    }
+    res = test_client.post("/api/auctions", json=payload)
+    assert res.status_code == 400
+    assert "Only authorized SELLERS or ADMINS" in res.json()["detail"]
+
+def test_gateway_place_bid_accepted(distributed_env):
+    test_client, _ = distributed_env
+    # auc_001 requires at least 7000
+    bid_res = test_client.post("/api/auctions/auc_001/bid", json={
+        "bidder_id": "usr_marcus",
+        "amount": 7250.0
+    })
+    assert bid_res.status_code == 200
+    data = bid_res.json()
+    assert data["success"] is True
+    assert data["current_highest_bid"] == 7250.0
+    assert data["telemetry"]["tx_status"] == "COMMITTED"
+    assert "Marcus Sterling" in data["message"]
+
+    # Verify auction state updated
+    detail_res = test_client.get("/api/auctions/auc_001")
+    assert detail_res.status_code == 200
+    assert detail_res.json()["highest_bid"] == 7250.0
+    assert detail_res.json()["highest_bidder_id"] == "usr_marcus"
+
+def test_gateway_place_bid_insufficient_rejected(distributed_env):
+    test_client, _ = distributed_env
+    # Bidding below current highest bid of 7250
+    bid_res = test_client.post("/api/auctions/auc_001/bid", json={
+        "bidder_id": "usr_sophia",
+        "amount": 7100.0
+    })
+    assert bid_res.status_code == 200
+    data = bid_res.json()
+    assert data["success"] is False
+    assert "insufficient" in data["message"].lower()
+    assert data["telemetry"]["tx_status"] == "REJECTED"
+
+def test_gateway_get_auction_bids(distributed_env):
+    test_client, _ = distributed_env
+    res = test_client.get("/api/auctions/auc_001/bids")
+    assert res.status_code == 200
+    data = res.json()
+    assert data["success"] is True
+    assert data["total_bids"] >= 1
+    assert len(data["bids"]) >= 1
+    assert data["bids"][0]["bid_amount"] >= 7250.0
+
+def test_gateway_close_auction_and_winner(distributed_env):
+    test_client, _ = distributed_env
+    # Close auc_001 by seller
+    close_res = test_client.post("/api/auctions/auc_001/close", json={
+        "user_id": "usr_galerie"
+    })
+    assert close_res.status_code == 200
+    data = close_res.json()
+    assert data["success"] is True
+    assert data["status"] == "CLOSED"
+    assert data["winner_id"] == "usr_marcus"
+    assert data["final_price"] == 7250.0
+    assert "Auction closed successfully" in data["message"]
+
+    # Verify that further bids are rejected
+    post_close_bid = test_client.post("/api/auctions/auc_001/bid", json={
+        "bidder_id": "usr_sophia",
+        "amount": 8000.0
+    })
+    assert post_close_bid.status_code == 200
+    assert post_close_bid.json()["success"] is False
+    assert "closed" in post_close_bid.json()["message"].lower()

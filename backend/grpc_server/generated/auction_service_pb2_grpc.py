@@ -188,6 +188,26 @@ class AuctionServiceStub:
                 request_serializer=auction__service__pb2.GetCategoriesRequest.SerializeToString,
                 response_deserializer=auction__service__pb2.GetCategoriesResponse.FromString,
                 _registered_method=True)
+        self.PlaceBid = channel.unary_unary(
+                '/auction.AuctionService/PlaceBid',
+                request_serializer=auction__service__pb2.PlaceBidRequest.SerializeToString,
+                response_deserializer=auction__service__pb2.PlaceBidResponse.FromString,
+                _registered_method=True)
+        self.CreateAuction = channel.unary_unary(
+                '/auction.AuctionService/CreateAuction',
+                request_serializer=auction__service__pb2.CreateAuctionRequest.SerializeToString,
+                response_deserializer=auction__service__pb2.CreateAuctionResponse.FromString,
+                _registered_method=True)
+        self.CloseAuction = channel.unary_unary(
+                '/auction.AuctionService/CloseAuction',
+                request_serializer=auction__service__pb2.CloseAuctionRequest.SerializeToString,
+                response_deserializer=auction__service__pb2.CloseAuctionResponse.FromString,
+                _registered_method=True)
+        self.GetBids = channel.unary_unary(
+                '/auction.AuctionService/GetBids',
+                request_serializer=auction__service__pb2.GetBidsRequest.SerializeToString,
+                response_deserializer=auction__service__pb2.GetBidsResponse.FromString,
+                _registered_method=True)
 
 
 class AuctionServiceServicer:
@@ -219,6 +239,31 @@ class AuctionServiceServicer:
         context.set_details('Method not implemented!')
         raise NotImplementedError('Method not implemented!')
 
+    def PlaceBid(self, request, context):
+        """Member 2 Integration:
+        """
+        context.set_code(grpc.StatusCode.UNIMPLEMENTED)
+        context.set_details('Method not implemented!')
+        raise NotImplementedError('Method not implemented!')
+
+    def CreateAuction(self, request, context):
+        """Missing associated documentation comment in .proto file."""
+        context.set_code(grpc.StatusCode.UNIMPLEMENTED)
+        context.set_details('Method not implemented!')
+        raise NotImplementedError('Method not implemented!')
+
+    def CloseAuction(self, request, context):
+        """Missing associated documentation comment in .proto file."""
+        context.set_code(grpc.StatusCode.UNIMPLEMENTED)
+        context.set_details('Method not implemented!')
+        raise NotImplementedError('Method not implemented!')
+
+    def GetBids(self, request, context):
+        """Missing associated documentation comment in .proto file."""
+        context.set_code(grpc.StatusCode.UNIMPLEMENTED)
+        context.set_details('Method not implemented!')
+        raise NotImplementedError('Method not implemented!')
+
 
 def add_AuctionServiceServicer_to_server(servicer, server):
     rpc_method_handlers = {
@@ -236,6 +281,26 @@ def add_AuctionServiceServicer_to_server(servicer, server):
                     servicer.GetCategories,
                     request_deserializer=auction__service__pb2.GetCategoriesRequest.FromString,
                     response_serializer=auction__service__pb2.GetCategoriesResponse.SerializeToString,
+            ),
+            'PlaceBid': grpc.unary_unary_rpc_method_handler(
+                    servicer.PlaceBid,
+                    request_deserializer=auction__service__pb2.PlaceBidRequest.FromString,
+                    response_serializer=auction__service__pb2.PlaceBidResponse.SerializeToString,
+            ),
+            'CreateAuction': grpc.unary_unary_rpc_method_handler(
+                    servicer.CreateAuction,
+                    request_deserializer=auction__service__pb2.CreateAuctionRequest.FromString,
+                    response_serializer=auction__service__pb2.CreateAuctionResponse.SerializeToString,
+            ),
+            'CloseAuction': grpc.unary_unary_rpc_method_handler(
+                    servicer.CloseAuction,
+                    request_deserializer=auction__service__pb2.CloseAuctionRequest.FromString,
+                    response_serializer=auction__service__pb2.CloseAuctionResponse.SerializeToString,
+            ),
+            'GetBids': grpc.unary_unary_rpc_method_handler(
+                    servicer.GetBids,
+                    request_deserializer=auction__service__pb2.GetBidsRequest.FromString,
+                    response_serializer=auction__service__pb2.GetBidsResponse.SerializeToString,
             ),
     }
     generic_handler = grpc.method_handlers_generic_handler(
@@ -326,6 +391,114 @@ class AuctionService:
             '/auction.AuctionService/GetCategories',
             auction__service__pb2.GetCategoriesRequest.SerializeToString,
             auction__service__pb2.GetCategoriesResponse.FromString,
+            options,
+            channel_credentials,
+            insecure,
+            call_credentials,
+            compression,
+            wait_for_ready,
+            timeout,
+            metadata,
+            _registered_method=True)
+
+    @staticmethod
+    def PlaceBid(request,
+            target,
+            options=(),
+            channel_credentials=None,
+            call_credentials=None,
+            insecure=False,
+            compression=None,
+            wait_for_ready=None,
+            timeout=None,
+            metadata=None):
+        return grpc.experimental.unary_unary(
+            request,
+            target,
+            '/auction.AuctionService/PlaceBid',
+            auction__service__pb2.PlaceBidRequest.SerializeToString,
+            auction__service__pb2.PlaceBidResponse.FromString,
+            options,
+            channel_credentials,
+            insecure,
+            call_credentials,
+            compression,
+            wait_for_ready,
+            timeout,
+            metadata,
+            _registered_method=True)
+
+    @staticmethod
+    def CreateAuction(request,
+            target,
+            options=(),
+            channel_credentials=None,
+            call_credentials=None,
+            insecure=False,
+            compression=None,
+            wait_for_ready=None,
+            timeout=None,
+            metadata=None):
+        return grpc.experimental.unary_unary(
+            request,
+            target,
+            '/auction.AuctionService/CreateAuction',
+            auction__service__pb2.CreateAuctionRequest.SerializeToString,
+            auction__service__pb2.CreateAuctionResponse.FromString,
+            options,
+            channel_credentials,
+            insecure,
+            call_credentials,
+            compression,
+            wait_for_ready,
+            timeout,
+            metadata,
+            _registered_method=True)
+
+    @staticmethod
+    def CloseAuction(request,
+            target,
+            options=(),
+            channel_credentials=None,
+            call_credentials=None,
+            insecure=False,
+            compression=None,
+            wait_for_ready=None,
+            timeout=None,
+            metadata=None):
+        return grpc.experimental.unary_unary(
+            request,
+            target,
+            '/auction.AuctionService/CloseAuction',
+            auction__service__pb2.CloseAuctionRequest.SerializeToString,
+            auction__service__pb2.CloseAuctionResponse.FromString,
+            options,
+            channel_credentials,
+            insecure,
+            call_credentials,
+            compression,
+            wait_for_ready,
+            timeout,
+            metadata,
+            _registered_method=True)
+
+    @staticmethod
+    def GetBids(request,
+            target,
+            options=(),
+            channel_credentials=None,
+            call_credentials=None,
+            insecure=False,
+            compression=None,
+            wait_for_ready=None,
+            timeout=None,
+            metadata=None):
+        return grpc.experimental.unary_unary(
+            request,
+            target,
+            '/auction.AuctionService/GetBids',
+            auction__service__pb2.GetBidsRequest.SerializeToString,
+            auction__service__pb2.GetBidsResponse.FromString,
             options,
             channel_credentials,
             insecure,

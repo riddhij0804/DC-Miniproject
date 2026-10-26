@@ -34,14 +34,29 @@ const auth = {
     return user && user.role === 'ADMIN';
   },
 
+  isSellerOrAdmin() {
+    const user = this.getUser();
+    return user && (user.role === 'SELLER' || user.role === 'ADMIN');
+  },
+
   updateNav() {
     const user = this.getUser();
     const userMenuContainer = document.getElementById('user-menu-area');
     const adminNavLinks = document.querySelectorAll('.admin-only');
+    const sellerAdminLinks = document.querySelectorAll('.seller-admin-only');
 
     // Update Admin nav links visibility
     adminNavLinks.forEach(el => {
       if (this.isAdmin()) {
+        el.style.display = 'inline-flex';
+      } else {
+        el.style.display = 'none';
+      }
+    });
+
+    // Update Seller/Admin elements visibility
+    sellerAdminLinks.forEach(el => {
+      if (this.isSellerOrAdmin()) {
         el.style.display = 'inline-flex';
       } else {
         el.style.display = 'none';
@@ -58,7 +73,7 @@ const auth = {
         .slice(0, 2)
         .toUpperCase();
 
-      const roleClass = user.role === 'ADMIN' ? 'role-admin' : '';
+      const roleClass = user.role === 'ADMIN' ? 'role-admin' : (user.role === 'SELLER' ? 'role-seller' : '');
       const roleLabel = user.role === 'ADMIN' ? 'CURATOR' : user.role;
 
       userMenuContainer.innerHTML = `

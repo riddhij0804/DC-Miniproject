@@ -225,3 +225,24 @@ pytest -v
 - **gRPC Connection Refused:** Ensure `scripts/run_server.py` is started before browsing `http://127.0.0.1:8000`. The gateway will display a clear error message with a "Retry Connection" button if the server is offline.
 - **Port Conflict:** Set `GRPC_SERVER_PORT=50052` or `WEB_GATEWAY_PORT=8080` in your environment or `.env` file.
 - **Database Reset:** To wipe and re-seed the catalog at any time, run `python3 scripts/init_db.py`.
+
+## Member 2 Features Added
+
+- **Auction Creation**: Sellers can create auctions with item details, starting price, and duration via the `CreateAuction` RPC.
+- **Bidding Engine**: Buyers place bids; the system validates amount, bidder permissions, auction state, and deadline, updating the highest bid atomically.
+- **Concurrent Bidding Safety**: Uses database transactions and per‑auction locks to prevent race conditions.
+- **Auction Closure & Winner Selection**: Auctions close automatically or via authorized request, recording the winner and final price; idempotent handling of repeated closures.
+- **UI Integration**: New auction creation modal, bid submission UI, and an activity panel showing request processing, validation results, and database outcomes.
+
+These features integrate with the existing authentication, gRPC services, FastAPI gateway, and frontend UI without affecting other modules.
+
+## Member 2 Features Added
+
+- **Auction Creation**: Sellers can create auctions with item details, starting price, and duration via the `CreateAuction` RPC.
+- **Bidding Engine**: Buyers place bids; the system validates amount, bidder permissions, auction state, and deadline, updating the highest bid atomically.
+- **Concurrent Bidding Safety**: Uses database transactions and per‑auction locks to prevent race conditions.
+- **Auction Closure & Winner Selection**: Auctions close automatically or via authorized request, recording the winner and final price; idempotent handling of repeated closures.
+- **UI Integration**: New auction creation modal, bid submission UI, and an activity panel showing request processing, validation results, and database outcomes.
+
+These features integrate with the existing authentication, gRPC services, FastAPI gateway, and frontend UI without affecting other modules.
+

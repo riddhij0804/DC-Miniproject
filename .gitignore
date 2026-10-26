@@ -56,3 +56,12 @@ Thumbs.db
 .vscode/
 *.swp
 *.swo
+
+# Member 2 generated files and assets
+backend/grpc_server/generated/
+frontend/assets/images/*.svg
+
+# Member 2 generated files and assets
+backend/grpc_server/generated/
+frontend/assets/images/*.svg
+

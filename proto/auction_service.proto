@@ -52,9 +52,11 @@ service AuctionService {
   rpc GetAuction (GetAuctionRequest) returns (GetAuctionResponse);
   rpc GetCategories (GetCategoriesRequest) returns (GetCategoriesResponse);
 
-  // Member 2 Integration Hooks (Defined in contract, implemented by Member 2):
-  // rpc PlaceBid (PlaceBidRequest) returns (PlaceBidResponse);
-  // rpc CreateAuction (CreateAuctionRequest) returns (CreateAuctionResponse);
+  // Member 2 Integration:
+  rpc PlaceBid (PlaceBidRequest) returns (PlaceBidResponse);
+  rpc CreateAuction (CreateAuctionRequest) returns (CreateAuctionResponse);
+  rpc CloseAuction (CloseAuctionRequest) returns (CloseAuctionResponse);
+  rpc GetBids (GetBidsRequest) returns (GetBidsResponse);
 
   // Member 3 Integration Hooks (Defined in contract, implemented by Member 3):
   // rpc StreamAuctionEvents (AuctionEventRequest) returns (stream AuctionEventResponse);
@@ -160,4 +162,39 @@ message AuctionEventResponse {
   string highest_bidder_name = 4;
   int32 total_bids = 5;
   string timestamp = 6;
+}
+
+message CloseAuctionRequest {
+  string auction_id = 1;
+  string user_id = 2;
+}
+
+message CloseAuctionResponse {
+  bool success = 1;
+  string message = 2;
+  string auction_id = 3;
+  string status = 4;
+  string winner_id = 5;
+  string winner_name = 6;
+  double final_price = 7;
+  int32 total_bids = 8;
+}
+
+message GetBidsRequest {
+  string auction_id = 1;
+  int32 limit = 2;
+}
+
+message BidRecord {
+  string bid_id = 1;
+  string auction_id = 2;
+  string bidder_id = 3;
+  string bidder_name = 4;
+  string bidder_username = 5;
+  double bid_amount = 6;
+  string timestamp = 7;
+}
+
+message GetBidsResponse {
+  repeated BidRecord bids = 1;
 }

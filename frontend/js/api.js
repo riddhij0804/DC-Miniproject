@@ -73,6 +73,69 @@ const api = {
   },
 
   /**
+   * Member 2: Creates a new auction lot via gRPC CreateAuction RPC
+   */
+  async createAuction(auctionData) {
+    const res = await fetch(`${API_BASE}/api/auctions`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(auctionData)
+    });
+    const data = await res.json();
+    if (!res.ok) {
+      throw new Error(data.detail || 'Failed to create auction lot.');
+    }
+    return data;
+  },
+
+  /**
+   * Member 2: Places a validated bid on an auction lot via gRPC PlaceBid RPC
+   */
+  async placeBid(auctionId, bidderId, amount) {
+    const res = await fetch(`${API_BASE}/api/auctions/${encodeURIComponent(auctionId)}/bid`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        bidder_id: bidderId,
+        amount: parseFloat(amount)
+      })
+    });
+    const data = await res.json();
+    if (!res.ok) {
+      throw new Error(data.detail || 'Failed to place bid.');
+    }
+    return data;
+  },
+
+  /**
+   * Member 2: Closes an auction and records winner via gRPC CloseAuction RPC
+   */
+  async closeAuction(auctionId, userId) {
+    const res = await fetch(`${API_BASE}/api/auctions/${encodeURIComponent(auctionId)}/close`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ user_id: userId })
+    });
+    const data = await res.json();
+    if (!res.ok) {
+      throw new Error(data.detail || 'Failed to close auction lot.');
+    }
+    return data;
+  },
+
+  /**
+   * Member 2: Retrieves bid placement history for an auction lot
+   */
+  async getBids(auctionId, limit = 50) {
+    const res = await fetch(`${API_BASE}/api/auctions/${encodeURIComponent(auctionId)}/bids?limit=${limit}`);
+    const data = await res.json();
+    if (!res.ok) {
+      return [];
+    }
+    return data.bids || [];
+  },
+
+  /**
    * Checks gateway and gRPC backend health
    */
   async checkHealth() {
