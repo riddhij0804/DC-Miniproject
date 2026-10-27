@@ -25,6 +25,10 @@ document.addEventListener('DOMContentLoaded', async () => {
   let countdownTimer = null;
   let syncInterval = null;
   let currentAuctionState = null;
+  let liveSocket = null;
+  let liveReconnectTimer = null;
+  let liveReconnectDelay = 1000;
+  let liveConnectedAt = 0;
   const activityLog = [];
 
   // Helper to record activity telemetry
@@ -69,7 +73,12 @@ document.addEventListener('DOMContentLoaded', async () => {
         ? `<span class="badge badge-closed">Auction Closed / Hammer Dropped</span>`
         : `<span class="badge badge-upcoming">Upcoming Lot</span>`;
 
-    const countdown = api.getCountdown(auc.end_time);
+    const countdown = api.getCountdown(isUpcoming ? auc.start_time : auc.end_time);
+    if (isUpcoming) {
+      countdown.text = countdown.isExpired
+        ? 'Opening time reached — syncing with server'
+        : `Opens in ${countdown.text}`;
+    }
     const highestBidDisplay = auc.highest_bid > 0
       ? api.formatCurrency(auc.highest_bid)
       : 'No Bids Yet';
@@ -368,13 +377,19 @@ document.addEventListener('DOMContentLoaded', async () => {
     // 1. Ticking countdown
     if (countdownTimer) clearInterval(countdownTimer);
     const countdownEl = document.getElementById('detail-countdown-text');
-    if (countdownEl && auc.status === 'ACTIVE') {
+    if (countdownEl && (auc.status === 'ACTIVE' || auc.status === 'UPCOMING')) {
       countdownTimer = setInterval(() => {
-        const cd = api.getCountdown(auc.end_time);
-        countdownEl.textContent = cd.text;
-        if (cd.isExpired && auc.status === 'ACTIVE') {
+        const target = auc.status === 'UPCOMING' ? auc.start_time : auc.end_time;
+        const cd = api.getCountdown(target);
+        countdownEl.textContent = auc.status === 'UPCOMING' && !cd.isExpired
+          ? `Opens in ${cd.text}`
+          : cd.text;
+        if (cd.isExpired) {
+          countdownEl.textContent = auc.status === 'UPCOMING'
+            ? 'Opening time reached — syncing with server'
+            : 'Deadline reached — awaiting server confirmation';
           clearInterval(countdownTimer);
-          loadLot();
+          syncCurrentLot();
         }
       }, 1000);
     }
@@ -568,56 +583,100 @@ document.addEventListener('DOMContentLoaded', async () => {
   }
 
   async function syncCurrentLot() {
-    if (!currentAuctionState || currentAuctionState.status === 'CLOSED') return;
+    if (!currentAuctionState) return;
 
     try {
       const fresh = await api.getAuction(auctionId);
       if (!fresh) return;
 
-      // Detect if another user in another browser placed a higher bid
-      if (fresh.highest_bid > currentAuctionState.highest_bid) {
+      const previous = currentAuctionState;
+      const bidChanged = fresh.highest_bid !== previous.highest_bid
+        || fresh.total_bids !== previous.total_bids
+        || fresh.highest_bidder_id !== previous.highest_bidder_id;
+      const statusChanged = fresh.status !== previous.status;
+      if (!bidChanged && !statusChanged) return;
+
+      if (bidChanged) {
         logActivity({
-          op: 'DistributedSync',
-          status: 'OUTBID_EVENT',
-          latencyMs: 1.2,
-          detail: `Concurrent bid detected! New leader: ${fresh.highest_bidder_name || 'Collector'} at ${api.formatCurrency(fresh.highest_bid)}.`
+          op: 'BID_ACCEPTED',
+          status: 'DELIVERED',
+          latencyMs: 0,
+          detail: `${fresh.highest_bidder_name || 'A collector'} now leads at ${api.formatCurrency(fresh.highest_bid)}.`
         });
-
-        currentAuctionState = fresh;
-        const highEl = document.getElementById('val-highest-bid');
-        if (highEl) {
-          highEl.textContent = api.formatCurrency(fresh.highest_bid);
-          highEl.style.transition = 'color 0.2s ease';
-          highEl.style.color = '#F04432';
-          setTimeout(() => { highEl.style.color = ''; }, 600);
-        }
-
-        const minNextEl = document.getElementById('val-min-next-bid');
-        if (minNextEl) minNextEl.textContent = api.formatCurrency(fresh.min_next_bid);
-
-        const totalBidsEl = document.getElementById('val-total-bids');
-        if (totalBidsEl) totalBidsEl.textContent = fresh.total_bids;
-
-        const bidInput = document.getElementById('member2-bid-input');
-        if (bidInput && parseFloat(bidInput.value) < fresh.min_next_bid) {
-          bidInput.value = fresh.min_next_bid;
-          bidInput.min = fresh.min_next_bid;
-        }
-
-        loadBidsHistory();
-        exposeMember2Integration(fresh);
-      } else if (fresh.status === 'CLOSED' && currentAuctionState.status !== 'CLOSED') {
-        logActivity({
-          op: 'DistributedSync',
-          status: 'AUCTION_CLOSED',
-          latencyMs: 1.0,
-          detail: 'Auction lot closed by curator/deadline.'
-        });
-        loadLot();
       }
+      if (statusChanged) {
+        logActivity({
+          op: 'AUCTION_STATUS',
+          status: fresh.status,
+          latencyMs: 0,
+          detail: fresh.status === 'CLOSED'
+            ? 'Auction closed by the server; final result loaded from persisted state.'
+            : `Auction status changed to ${fresh.status}.`
+        });
+      }
+
+      currentAuctionState = fresh;
+      renderLot(fresh);
+      exposeMember2Integration(fresh);
+      loadBidsHistory();
     } catch {
       // Background poll silently continues
     }
+  }
+
+  function setLiveConnectionStatus(status) {
+    const statusEl = document.getElementById('live-connection-status');
+    if (statusEl) statusEl.textContent = status;
+  }
+
+  function connectLiveUpdates() {
+    if (liveSocket && (liveSocket.readyState === WebSocket.OPEN || liveSocket.readyState === WebSocket.CONNECTING)) {
+      return;
+    }
+
+    const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
+    setLiveConnectionStatus('Connecting to live updates…');
+    liveSocket = new WebSocket(`${protocol}//${window.location.host}/ws/live`);
+
+    liveSocket.addEventListener('open', () => {
+      liveConnectedAt = Date.now();
+      setLiveConnectionStatus('Live updates connected');
+      liveSocket.send(JSON.stringify({ action: 'subscribe', auction_id: auctionId }));
+      syncCurrentLot();
+    });
+
+    liveSocket.addEventListener('message', (message) => {
+      let event;
+      try {
+        event = JSON.parse(message.data);
+      } catch {
+        setLiveConnectionStatus('Received an invalid live update');
+        return;
+      }
+
+      if (event.type === 'STREAM_ERROR' || event.type === 'ERROR') {
+        setLiveConnectionStatus(event.message || 'Live updates unavailable');
+        if (event.type === 'STREAM_ERROR' && liveSocket) liveSocket.close();
+        return;
+      }
+      if (event.auction_id === auctionId) {
+        syncCurrentLot();
+      }
+    });
+
+    liveSocket.addEventListener('close', () => {
+      liveSocket = null;
+      setLiveConnectionStatus('Live updates disconnected; reconnecting…');
+      if (Date.now() - liveConnectedAt >= 30000) liveReconnectDelay = 1000;
+      if (liveReconnectTimer) clearTimeout(liveReconnectTimer);
+      liveReconnectTimer = setTimeout(connectLiveUpdates, liveReconnectDelay);
+      liveReconnectDelay = Math.min(liveReconnectDelay * 2, 15000);
+    });
+
+    liveSocket.addEventListener('error', () => {
+      setLiveConnectionStatus('Live update connection error; reconnecting…');
+      if (liveSocket) liveSocket.close();
+    });
   }
 
   function round(val, dec) {
@@ -646,4 +705,12 @@ document.addEventListener('DOMContentLoaded', async () => {
   }
 
   await loadLot();
+  connectLiveUpdates();
+
+  window.addEventListener('beforeunload', () => {
+    if (liveReconnectTimer) clearTimeout(liveReconnectTimer);
+    if (countdownTimer) clearInterval(countdownTimer);
+    if (syncInterval) clearInterval(syncInterval);
+    if (liveSocket) liveSocket.close();
+  });
 });

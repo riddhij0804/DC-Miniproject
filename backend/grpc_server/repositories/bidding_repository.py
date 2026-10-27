@@ -278,6 +278,7 @@ class BiddingRepository:
                     now = datetime.now(timezone.utc)
                     start_dt = self._parse_iso_datetime(auction_row["start_time"])
                     end_dt = self._parse_iso_datetime(auction_row["end_time"])
+                    status_changed = False
 
                     # 3. Validate status & deadline
                     if current_status == "CLOSED":
@@ -302,6 +303,7 @@ class BiddingRepository:
                             # Start time reached, update status to ACTIVE
                             cur.execute("UPDATE auctions SET status = 'ACTIVE' WHERE auction_id = ?;", (auction_id,))
                             current_status = "ACTIVE"
+                            status_changed = True
 
                     # Check deadline
                     if end_dt and now >= end_dt:
@@ -312,7 +314,8 @@ class BiddingRepository:
                             "success": False,
                             "message": f"Auction deadline reached ({auction_row['end_time']}). The lot is now closed.",
                             "current_highest_bid": float(auction_row["highest_bid"] or 0.0),
-                            "timestamp": self._format_iso(now)
+                            "timestamp": self._format_iso(now),
+                            "closed_now": True
                         }
 
                     # 4. Validate bid amount against freshest committed state
@@ -370,7 +373,8 @@ class BiddingRepository:
                         "current_highest_bid": round(bid_amount, 2),
                         "timestamp": timestamp_iso,
                         "bid_id": bid_id,
-                        "auction_id": auction_id
+                        "auction_id": auction_id,
+                        "status_changed": status_changed
                     }
 
                 except sqlite3.OperationalError as oe:
@@ -481,7 +485,8 @@ class BiddingRepository:
                         "winner_id": row["highest_bidder_id"] or "",
                         "winner_name": row["winner_name"] or ("No Winner (No Bids)" if not row["highest_bidder_id"] else ""),
                         "final_price": float(row["highest_bid"] or 0.0),
-                        "total_bids": total_bids
+                        "total_bids": total_bids,
+                        "closed_now": False
                     }
 
                 # Update auction to CLOSED
@@ -500,7 +505,8 @@ class BiddingRepository:
                     "winner_id": winner_id,
                     "winner_name": winner_name,
                     "final_price": final_price,
-                    "total_bids": total_bids
+                    "total_bids": total_bids,
+                    "closed_now": True
                 }
 
             except Exception as e:
@@ -513,8 +519,57 @@ class BiddingRepository:
                     "winner_id": "",
                     "winner_name": "",
                     "final_price": 0.0,
-                    "total_bids": 0
+                    "total_bids": 0,
+                    "closed_now": False
                 }
+            finally:
+                conn.close()
+
+    def activate_auction_if_due(
+        self,
+        auction_id: str,
+        now: Optional[datetime] = None,
+    ) -> bool:
+        """Atomically activates a scheduled auction once its opening time arrives."""
+        current_time = now or datetime.now(timezone.utc)
+        auction_lock = self._get_auction_lock(auction_id)
+        with auction_lock:
+            conn = get_connection(self.db_path)
+            try:
+                cur = conn.cursor()
+                cur.execute("BEGIN IMMEDIATE;")
+                cur.execute("""
+                    SELECT status, start_time, end_time
+                    FROM auctions
+                    WHERE auction_id = ?;
+                """, (auction_id,))
+                row = cur.fetchone()
+                if not row or row["status"] != "UPCOMING":
+                    conn.rollback()
+                    return False
+
+                start_time = self._parse_iso_datetime(row["start_time"])
+                end_time = self._parse_iso_datetime(row["end_time"])
+                if (
+                    start_time is None
+                    or end_time is None
+                    or current_time < start_time
+                    or current_time >= end_time
+                ):
+                    conn.rollback()
+                    return False
+
+                cur.execute("""
+                    UPDATE auctions
+                    SET status = 'ACTIVE'
+                    WHERE auction_id = ? AND status = 'UPCOMING';
+                """, (auction_id,))
+                changed = cur.rowcount == 1
+                conn.commit()
+                return changed
+            except Exception:
+                conn.rollback()
+                raise
             finally:
                 conn.close()
 
@@ -549,4 +604,3 @@ class BiddingRepository:
             ]
         finally:
             conn.close()
-

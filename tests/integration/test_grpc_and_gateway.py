@@ -4,14 +4,16 @@ Tests the complete distributed RPC round-trip for Member 1 and Member 2 features
 """
 import pytest
 import os
+import queue
 import tempfile
 import socket
+import time
 from concurrent import futures
 import grpc
 from fastapi.testclient import TestClient
 
 from database.seed_data import seed_database
-from backend.grpc_server.generated import auction_service_pb2_grpc
+from backend.grpc_server.generated import auction_service_pb2, auction_service_pb2_grpc
 from backend.grpc_server.services.user_service import UserServiceServicer
 from backend.grpc_server.services.auction_query_service import AuctionQueryServiceServicer
 from backend.grpc_server.repositories.user_repository import UserRepository
@@ -270,3 +272,91 @@ def test_gateway_close_auction_and_winner(distributed_env):
     assert post_close_bid.status_code == 200
     assert post_close_bid.json()["success"] is False
     assert "closed" in post_close_bid.json()["message"].lower()
+
+def test_bidirectional_stream_routes_persisted_bid_to_matching_subscribers(distributed_env):
+    test_client, client = distributed_env
+
+    def create_lot(title):
+        response = test_client.post("/api/auctions", json={
+            "title": title,
+            "description": "Streaming integration test lot.",
+            "category": "Art",
+            "seller_id": "usr_galerie",
+            "starting_price": 100.0,
+            "min_increment": 10.0,
+            "duration_hours": 1.0,
+        })
+        assert response.status_code == 201
+        return response.json()["auction_id"]
+
+    auction_id = create_lot("Streaming Test Lot")
+    unrelated_auction_id = create_lot("Unrelated Streaming Lot")
+    channel = grpc.insecure_channel(client.target)
+    stub = auction_service_pb2_grpc.AuctionServiceStub(channel)
+
+    def subscribe(target_auction_id):
+        requests = queue.Queue()
+
+        def request_iterator():
+            while True:
+                request = requests.get()
+                if request is None:
+                    return
+                yield request
+
+        call = stub.AuctionStream(request_iterator(), timeout=10.0)
+        requests.put(auction_service_pb2.AuctionStreamRequest(
+            action=auction_service_pb2.AuctionStreamRequest.SUBSCRIBE,
+            auction_id=target_auction_id,
+        ))
+        initial_event = next(call)
+        assert initial_event.event_type == "AUCTION_STATE"
+        return call, requests
+
+    first_call, first_requests = subscribe(auction_id)
+    second_call, second_requests = subscribe(auction_id)
+    unrelated_call, unrelated_requests = subscribe(unrelated_auction_id)
+
+    with futures.ThreadPoolExecutor(max_workers=3) as executor:
+        first_event = executor.submit(next, first_call)
+        second_event = executor.submit(next, second_call)
+        unrelated_event = executor.submit(next, unrelated_call)
+
+        bid_result = client.place_bid(auction_id, "usr_marcus", 100.0)
+        assert bid_result["success"] is True
+        first_bid_event = first_event.result(timeout=3)
+        second_bid_event = second_event.result(timeout=3)
+        assert first_bid_event.event_type == "BID_ACCEPTED"
+        assert first_bid_event.auction.highest_bid == 100.0
+        assert second_bid_event.event_type == "BID_ACCEPTED"
+
+        time.sleep(0.2)
+        assert not unrelated_event.done()
+
+        first_close_event = executor.submit(next, first_call)
+        second_close_event = executor.submit(next, second_call)
+        close_result = client.close_auction(auction_id, "usr_galerie")
+        assert close_result["success"] is True
+        assert first_close_event.result(timeout=3).event_type == "AUCTION_CLOSED"
+        assert second_close_event.result(timeout=3).event_type == "AUCTION_CLOSED"
+        assert close_result["winner_id"] == "usr_marcus"
+        assert close_result["final_price"] == 100.0
+
+        first_call.cancel()
+        second_call.cancel()
+        unrelated_call.cancel()
+        first_requests.put(None)
+        second_requests.put(None)
+        unrelated_requests.put(None)
+
+    reconnect_call, reconnect_requests = subscribe(auction_id)
+    try:
+        recovered_snapshot = next(reconnect_call)
+        assert recovered_snapshot.event_type == "AUCTION_STATE"
+        assert recovered_snapshot.auction.status == "CLOSED"
+        assert recovered_snapshot.auction.highest_bid == 100.0
+        assert recovered_snapshot.auction.highest_bidder_id == "usr_marcus"
+    finally:
+        reconnect_call.cancel()
+        reconnect_requests.put(None)
+    channel.close()

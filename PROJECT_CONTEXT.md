@@ -64,17 +64,14 @@ service AuctionService {
   rpc ListAuctions (ListAuctionsRequest) returns (ListAuctionsResponse);
   rpc GetAuction (GetAuctionRequest) returns (GetAuctionResponse);
   rpc GetCategories (GetCategoriesRequest) returns (GetCategoriesResponse);
+  rpc AuctionStream (stream AuctionStreamRequest) returns (stream AuctionStreamEvent);
 }
 ```
 
-### Team Integration Hooks (Members 2 & 3)
+### Auction Management RPCs (Member 2)
 ```protobuf
-// Member 2: Bidding & Creation
 rpc PlaceBid (PlaceBidRequest) returns (PlaceBidResponse);
 rpc CreateAuction (CreateAuctionRequest) returns (CreateAuctionResponse);
-
-// Member 3: Bidirectional Live Streaming
-rpc StreamAuctionEvents (AuctionEventRequest) returns (stream AuctionEventResponse);
 ```
 
 ---
@@ -178,10 +175,21 @@ python3 scripts/run_gateway.py
 
 ## 8. Test Status
 
-Automated test suite (`pytest -v`):
-- **30 / 30 tests passing (100% pass rate)**
+Previously recorded test status (`pytest -v`):
+- **30 / 30 tests passing (100% pass rate) before Member 3 integration changes**
 - `test_user_service.py`: Authentication, empty inputs, role matching.
 - `test_auction_query_service.py`: Lot queries, category/status filters, NOT_FOUND responses.
 - `test_repositories.py`: Parameterized SQL queries, count aggregations.
 - `test_grpc_and_gateway.py`: Full end-to-end distributed HTTP -> FastAPI -> gRPC -> SQLite roundtrip.
 - `test_concurrent_queries.py`: Multi-threaded query and login concurrency.
+- New streaming and lifecycle tests have been added; their results require a test run.
+
+## Member 3 Implementation Update
+
+The current Python implementation now includes the bidirectional
+`AuctionService.AuctionStream` RPC, auction-specific events bridged through the
+FastAPI `/ws/live` endpoint, and a server-side lifecycle sweep for scheduled
+activation, deadline closure, and startup recovery. The existing auction and bid
+records remain the persistent source for final status, highest bid, and winner.
+This implementation update supersedes the earlier Member 3 “integration hooks”
+status above; it does not add a Java or Maven module.

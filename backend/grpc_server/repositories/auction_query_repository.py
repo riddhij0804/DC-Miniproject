@@ -178,3 +178,18 @@ class AuctionQueryRepository:
             return [r["category"] for r in rows if r["category"]]
         finally:
             conn.close()
+
+    def find_auctions_for_lifecycle(self) -> List[Dict[str, Any]]:
+        """Returns non-final auctions for server-side lifecycle processing."""
+        conn = get_connection(self.db_path)
+        try:
+            cur = conn.cursor()
+            cur.execute("""
+                SELECT auction_id, status, start_time, end_time
+                FROM auctions
+                WHERE status IN ('UPCOMING', 'ACTIVE')
+                ORDER BY end_time ASC;
+            """)
+            return [dict(row) for row in cur.fetchall()]
+        finally:
+            conn.close()

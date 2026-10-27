@@ -2,7 +2,9 @@
 
 An editorial-grade **Online Auction System** built with **Python gRPC, Protocol Buffers, SQLite3, FastAPI, and Vanilla JavaScript**.
 
-This repository implements the **User Access and Auction Marketplace module (Member 1)**, establishing the core distributed computing foundation, shared database schema, gRPC services, web gateway, and responsive art-auction interface.
+This repository implements user access and the auction marketplace (Member 1),
+the bidding and auction-management engine (Member 2), and auction event streaming
+and lifecycle processing (Member 3).
 
 ---
 
@@ -21,7 +23,7 @@ FastAPI Web Gateway (Port 8000)
        ▼
 Python gRPC Server
  ├── UserService (Demo login, Role retrieval)
- └── AuctionService (List lots, Filters, Details)
+ └── AuctionService (Catalog, Bids, Auction Lifecycle, Bidirectional Events)
        │
        │ Parameterized SQLite Queries (WAL Mode)
        ▼
@@ -184,7 +186,7 @@ Click any one-click demo button on the login screen or enter the username manual
 
 ## 6. Testing
 
-The test suite includes 30 automated tests covering unit logic, repositories, gRPC services, full distributed round-trip integration, and concurrent query safety:
+The automated test suite covers unit logic, repositories, gRPC services, distributed integration, concurrency, live-stream routing, and auction lifecycle recovery:
 
 ```bash
 source .venv/bin/activate
@@ -214,9 +216,10 @@ pytest -v
 - **Context API:** Listen for `auction:lot-loaded` or inspect `window.AuctionDetailsContext`.
 
 ### Member 3: Live Bid Streaming & Push Notifications
-- **Proto RPCs:** Implement `StreamAuctionEvents` (bidirectional gRPC stream) in `backend/grpc_server/services/`.
-- **WebSocket Gateway:** Push events to `backend/web_gateway/app.py` via `ws_manager.broadcast({...})`.
-- **Frontend Live Hub:** Browser clients connect to `ws://127.0.0.1:8000/ws/live` and update highest bid cards in real-time.
+- **Proto RPC:** `AuctionService.AuctionStream` is a bidirectional gRPC subscription stream.
+- **WebSocket Gateway:** `/ws/live` bridges each browser's auction subscription to the gRPC stream.
+- **Frontend Live Hub:** Auction details refresh from the REST API after bid, status, or closure events and on reconnect.
+- **Lifecycle:** The gRPC server activates scheduled auctions, closes expired auctions, and recovers due auctions at startup.
 
 ---
 
@@ -246,3 +249,15 @@ These features integrate with the existing authentication, gRPC services, FastAP
 
 These features integrate with the existing authentication, gRPC services, FastAPI gateway, and frontend UI without affecting other modules.
 
+## Member 3: Live Events and Auction Lifecycle
+
+The native gRPC `AuctionService.AuctionStream` RPC is bidirectional. Browser
+auction-detail pages subscribe to an auction through the FastAPI `/ws/live` gateway;
+accepted bids and status/closure changes are routed only to clients subscribed to
+that auction. The browser refreshes the REST auction query after events and when
+reconnecting, so SQLite-backed server state remains authoritative.
+
+The gRPC server also activates scheduled auctions and closes expired auctions from
+their stored deadlines, including a recovery sweep on startup. Final status, highest
+accepted bid, and winner remain persisted on the existing auction and bid records.
+The countdown is a display only and does not close auctions.

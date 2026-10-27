@@ -3,9 +3,15 @@ FastAPI Web Gateway for the Online Auction System.
 Translates HTTP browser requests to native gRPC unary/streaming calls.
 Also serves frontend static assets and exposes a WebSocket hub for live events.
 """
+import asyncio
+import json
+import logging
 import os
+import queue
 import sys
+import threading
 from typing import List, Set
+import grpc
 from fastapi import FastAPI, WebSocket, WebSocketDisconnect
 from fastapi.responses import FileResponse, RedirectResponse
 from fastapi.staticfiles import StaticFiles
@@ -18,6 +24,9 @@ if PROJECT_ROOT not in sys.path:
 
 from backend.web_gateway.routers import auth, auctions
 from backend.web_gateway.grpc_client import grpc_client
+from backend.grpc_server.generated import auction_service_pb2
+
+logger = logging.getLogger(__name__)
 
 app = FastAPI(
     title="Online Auction System - Web Gateway",
@@ -89,32 +98,136 @@ class ConnectionManager:
     def disconnect(self, websocket: WebSocket):
         self.active_connections.discard(websocket)
 
-    async def broadcast(self, message: dict):
-        for connection in list(self.active_connections):
-            try:
-                await connection.send_json(message)
-            except Exception:
-                self.active_connections.discard(connection)
-
 ws_manager = ConnectionManager()
 
 @app.websocket("/ws/live")
 async def websocket_live_endpoint(websocket: WebSocket):
     """
-    WebSocket endpoint for live auction event broadcasts.
-    Teammates (Member 3) can push gRPC streaming events here to broadcast to all browser clients.
+    Bridges each browser's subscriptions to a genuine bidirectional gRPC stream.
     """
     await ws_manager.connect(websocket)
-    try:
-        # Send initial confirmation message
-        await websocket.send_json({
-            "type": "CONNECTION_ESTABLISHED",
-            "message": "Connected to Online Auction House Live Event Stream"
-        })
+    loop = asyncio.get_running_loop()
+    outgoing = asyncio.Queue()
+    incoming = queue.Queue()
+    stop_event = threading.Event()
+    grpc_call = []
+
+    def grpc_requests():
+        while not stop_event.is_set():
+            try:
+                request = incoming.get(timeout=0.25)
+            except queue.Empty:
+                continue
+            if request is None:
+                return
+            yield request
+
+    def queue_outgoing(message):
+        outgoing.put_nowait(message)
+
+    def read_grpc_events():
+        try:
+            if stop_event.is_set():
+                return
+            call = grpc_client.auction_stream(grpc_requests())
+            grpc_call.append(call)
+            if stop_event.is_set():
+                call.cancel()
+                return
+            for event in call:
+                loop.call_soon_threadsafe(
+                    queue_outgoing,
+                    grpc_client.auction_stream_event_to_dict(event),
+                )
+            if not stop_event.is_set():
+                loop.call_soon_threadsafe(queue_outgoing, {
+                    "type": "STREAM_ERROR",
+                    "message": "The live auction stream ended. Reconnecting…",
+                })
+        except grpc.RpcError:
+            if not stop_event.is_set():
+                loop.call_soon_threadsafe(queue_outgoing, {
+                    "type": "STREAM_ERROR",
+                    "message": "Live auction updates are temporarily unavailable.",
+                })
+        except Exception:
+            if not stop_event.is_set():
+                logger.exception("WebSocket-to-gRPC auction stream failed.")
+                loop.call_soon_threadsafe(queue_outgoing, {
+                    "type": "STREAM_ERROR",
+                    "message": "Live auction updates are temporarily unavailable.",
+                })
+
+    stream_thread = threading.Thread(
+        target=read_grpc_events,
+        name="gateway-auction-stream",
+        daemon=True,
+    )
+    stream_thread.start()
+
+    async def send_events():
         while True:
-            # Keep socket open and accept incoming ping/pong or client subscriptions
-            data = await websocket.receive_text()
+            await websocket.send_json(await outgoing.get())
+
+    async def receive_subscriptions():
+        while True:
+            try:
+                payload = json.loads(await websocket.receive_text())
+            except json.JSONDecodeError:
+                await outgoing.put({
+                    "type": "ERROR",
+                    "message": "Subscription message must be valid JSON.",
+                })
+                continue
+
+            if not isinstance(payload, dict):
+                await outgoing.put({
+                    "type": "ERROR",
+                    "message": "Subscription message must be a JSON object.",
+                })
+                continue
+            action = payload.get("action")
+            auction_id = payload.get("auction_id")
+            if action not in ("subscribe", "unsubscribe") or not isinstance(auction_id, str) or not auction_id.strip():
+                await outgoing.put({
+                    "type": "ERROR",
+                    "message": "Send subscribe/unsubscribe with a valid auction_id.",
+                })
+                continue
+
+            incoming.put(auction_service_pb2.AuctionStreamRequest(
+                action=(
+                    auction_service_pb2.AuctionStreamRequest.SUBSCRIBE
+                    if action == "subscribe"
+                    else auction_service_pb2.AuctionStreamRequest.UNSUBSCRIBE
+                ),
+                auction_id=auction_id.strip(),
+            ))
+
+    tasks = [
+        asyncio.create_task(send_events()),
+        asyncio.create_task(receive_subscriptions()),
+    ]
+    try:
+        done, pending = await asyncio.wait(
+            tasks,
+            return_when=asyncio.FIRST_COMPLETED,
+        )
+        for task in done:
+            try:
+                task.result()
+            except WebSocketDisconnect:
+                pass
+        for task in pending:
+            task.cancel()
+        await asyncio.gather(*pending, return_exceptions=True)
     except WebSocketDisconnect:
-        ws_manager.disconnect(websocket)
+        pass
     except Exception:
+        logger.exception("WebSocket live-event session failed.")
+    finally:
+        stop_event.set()
+        incoming.put(None)
+        if grpc_call:
+            grpc_call[0].cancel()
         ws_manager.disconnect(websocket)

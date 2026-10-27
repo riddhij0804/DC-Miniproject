@@ -11,8 +11,10 @@ import pytest
 from datetime import datetime, timezone, timedelta
 
 from database.seed_data import seed_database
+from database.db import get_connection
 from backend.grpc_server.repositories.bidding_repository import BiddingRepository
 from backend.grpc_server.repositories.auction_query_repository import AuctionQueryRepository
+from backend.grpc_server.services.auction_lifecycle import AuctionLifecycleManager
 
 @pytest.fixture
 def temp_repo():
@@ -222,6 +224,8 @@ def test_close_auction_idempotence(temp_repo):
     # Close second time
     res2 = bidding_repo.close_auction("auc_001")
     assert res2["success"] is True
+    assert res1["closed_now"] is True
+    assert res2["closed_now"] is False
     assert res2["status"] == "CLOSED"
     assert "already closed" in res2["message"].lower()
     assert res2["final_price"] == res1["final_price"]
@@ -246,3 +250,109 @@ def test_get_bids_history(temp_repo):
     assert bids[0]["bid_amount"] == 7500.0
     assert bids[0]["bidder_name"] == "Marcus Sterling"
     assert bids[1]["bid_amount"] == 7250.0
+
+
+class RecordingAuctionEvents:
+    def __init__(self):
+        self.events = []
+
+    def publish_auction_event(self, event_type, auction_id):
+        self.events.append((event_type, auction_id))
+
+
+def test_lifecycle_recovery_persists_expired_auction_result(temp_repo):
+    bidding_repo, query_repo, db_path = temp_repo
+    old_deadline = (datetime.now(timezone.utc) - timedelta(minutes=1)).strftime(
+        "%Y-%m-%dT%H:%M:%SZ"
+    )
+    connection = get_connection(db_path)
+    try:
+        connection.execute(
+            "UPDATE auctions SET status = 'ACTIVE', end_time = ? WHERE auction_id = ?;",
+            (old_deadline, "auc_001"),
+        )
+        connection.commit()
+    finally:
+        connection.close()
+
+    events = RecordingAuctionEvents()
+    manager = AuctionLifecycleManager(query_repo, bidding_repo, events)
+    manager.recover()
+    manager.recover()
+
+    persisted = AuctionQueryRepository(db_path).find_auction_by_id("auc_001")
+    assert persisted["status"] == "CLOSED"
+    assert persisted["highest_bidder_id"] == "usr_eleanor"
+    assert persisted["highest_bid"] == 6750.0
+    assert events.events == [("AUCTION_CLOSED", "auc_001")]
+
+
+def test_lifecycle_activates_upcoming_auction_without_changing_deadline(temp_repo):
+    bidding_repo, query_repo, _ = temp_repo
+    now = datetime.now(timezone.utc)
+    start_time = (now + timedelta(minutes=5)).strftime("%Y-%m-%dT%H:%M:%SZ")
+    end_time = (now + timedelta(hours=1)).strftime("%Y-%m-%dT%H:%M:%SZ")
+    created = bidding_repo.create_auction(
+        title="Scheduled Lifecycle Test",
+        description="Checks server-side scheduled activation.",
+        category="Art",
+        artist_name="Test",
+        image_path="/assets/images/artwork_001.svg",
+        seller_id="usr_galerie",
+        starting_price=100.0,
+        start_time=start_time,
+        end_time=end_time,
+    )
+    assert created["success"] is True
+
+    events = RecordingAuctionEvents()
+    manager = AuctionLifecycleManager(query_repo, bidding_repo, events)
+    manager.process_due_auctions(now=now + timedelta(minutes=6))
+
+    persisted = query_repo.find_auction_by_id(created["auction_id"])
+    assert persisted["status"] == "ACTIVE"
+    assert persisted["start_time"] == start_time
+    assert persisted["end_time"] == end_time
+    assert events.events == [("AUCTION_STATUS_CHANGED", created["auction_id"])]
+
+
+def test_lifecycle_closes_expired_auction_without_bids(temp_repo):
+    bidding_repo, query_repo, db_path = temp_repo
+    created = bidding_repo.create_auction(
+        title="Expired Unsold Lifecycle Test",
+        description="Checks an expired auction with no bids.",
+        category="Art",
+        artist_name="Test",
+        image_path="/assets/images/artwork_001.svg",
+        seller_id="usr_galerie",
+        starting_price=100.0,
+        duration_hours=1.0,
+    )
+    assert created["success"] is True
+
+    old_deadline = (datetime.now(timezone.utc) - timedelta(minutes=1)).strftime(
+        "%Y-%m-%dT%H:%M:%SZ"
+    )
+    connection = get_connection(db_path)
+    try:
+        connection.execute(
+            "UPDATE auctions SET status = 'ACTIVE', end_time = ? WHERE auction_id = ?;",
+            (old_deadline, created["auction_id"]),
+        )
+        connection.commit()
+    finally:
+        connection.close()
+
+    events = RecordingAuctionEvents()
+    manager = AuctionLifecycleManager(query_repo, bidding_repo, events)
+    manager.process_due_auctions()
+
+    persisted = query_repo.find_auction_by_id(created["auction_id"])
+    assert persisted["status"] == "CLOSED"
+    assert persisted["highest_bid"] == 0.0
+    assert persisted["highest_bidder_id"] == ""
+    result = bidding_repo.close_auction(created["auction_id"])
+    assert result["success"] is True
+    assert result["winner_id"] == ""
+    assert result["final_price"] == 0.0
+    assert events.events == [("AUCTION_CLOSED", created["auction_id"])]

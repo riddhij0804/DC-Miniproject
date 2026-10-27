@@ -25,9 +25,9 @@ flowchart TD
 
     subgraph GRPC ["Distributed Core Tier (gRPC Server :50051)"]
         SVC_User["UserService\n(Login, GetUserProfile)"]
-        SVC_Auction["AuctionService\n(ListAuctions, GetAuction, GetCategories)"]
+        SVC_Auction["AuctionService\n(Catalog, Bids, Lifecycle)"]
         SVC_Bid["[Member 2 Hook]\nPlaceBid, CreateAuction"]
-        SVC_Stream["[Member 3 Hook]\nStreamAuctionEvents"]
+        SVC_Stream["AuctionService.AuctionStream\n(Bidirectional subscriptions)"]
     end
 
     subgraph Data ["Persistence Tier (SQLite WAL Mode)"]
@@ -39,7 +39,7 @@ flowchart TD
     UI_Login -->|POST JSON| GW_Auth
     UI_Marketplace -->|GET JSON| GW_Auctions
     UI_Details -->|GET JSON| GW_Auctions
-    UI_WS <-->|WebSocket JSON| GW_Hub
+    UI_WS <-->|Auction subscriptions & events| GW_Hub
 
     GW_Auth --> GW_Client
     GW_Auctions --> GW_Client
@@ -47,10 +47,13 @@ flowchart TD
     GW_Client -->|Unary gRPC LoginRequest| SVC_User
     GW_Client -->|Unary gRPC ListAuctionsRequest| SVC_Auction
     GW_Client -->|Unary gRPC GetAuctionRequest| SVC_Auction
+    GW_Client <-->|Bidirectional AuctionStream| SVC_Stream
 
     SVC_User -->|Parameterized SQL| DB_Users
     SVC_Auction -->|Parameterized SQL| DB_Auctions
     SVC_Auction -->|Parameterized SQL| DB_Bids
+    SVC_Stream -->|Published after commit| GW_Client
+    SVC_Lifecycle["Auction lifecycle scheduler"] -->|Activate / close due lots| DB_Auctions
 ```
 
 ---
@@ -76,3 +79,28 @@ flowchart TD
 6. gRPC server packages rows into `repeated Auction` protobuf messages.
 7. Web Gateway serializes list to JSON.
 8. Browser renders responsive cards and starts local countdown tickers.
+
+## 3. Live Auction Events
+
+The browser opens `/ws/live` for an auction-details page and sends `subscribe` or
+`unsubscribe` messages containing an auction ID. The FastAPI gateway bridges that
+WebSocket to the native bidirectional `AuctionService.AuctionStream` RPC. The gRPC
+server sends an initial auction snapshot and routes subsequent events only to streams
+subscribed to that auction.
+
+Accepted-bid events are published only after `BiddingRepository.place_bid` commits
+the bid and updated auction record. Manual and automatic closure events are emitted
+only for the first successful close. The browser reloads authoritative auction state
+through the REST endpoint after receiving an event; WebSocket payloads do not become
+a second source of auction state. If the stream disconnects, the browser reconnects
+and refreshes that REST snapshot while the existing polling fallback remains active.
+
+## 4. Auction Lifecycle and Recovery
+
+The gRPC server runs a lifecycle sweep at startup and periodically while running.
+Auctions whose stored deadlines have passed are closed through the same
+`BiddingRepository.close_auction` method used by manual closure. Upcoming auctions
+are activated when their stored start time arrives. The auction status, highest
+accepted bid, and winner remain in SQLite, so restart recovery does not reset
+deadlines or create a separate result record. Bids are rejected by the bidding
+repository after the auction is closed or its deadline has passed.

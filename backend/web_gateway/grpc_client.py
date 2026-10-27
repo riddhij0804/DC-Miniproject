@@ -290,6 +290,24 @@ class GrpcAuctionClient:
         except grpc.RpcError:
             return []
 
+    def auction_stream(self, request_iterator):
+        """Opens the native bidirectional AuctionStream RPC."""
+        return self.auction_stub.AuctionStream(request_iterator)
+
+    @classmethod
+    def auction_stream_event_to_dict(cls, event) -> Dict[str, Any]:
+        """Converts an authoritative protobuf stream event for WebSocket clients."""
+        result = {
+            "type": event.event_type,
+            "auction_id": event.auction_id,
+            "timestamp": event.timestamp,
+            "message": event.message,
+            "bid_amount": event.bid_amount,
+        }
+        if event.HasField("auction"):
+            result["auction"] = cls._proto_auction_to_dict(event.auction)
+        return result
+
     def ping(self) -> bool:
         """Verifies connection to the gRPC server."""
         try:
